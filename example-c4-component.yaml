@@ -1,0 +1,109 @@
+---
+level: "component"
+title: "Online Banking System - Component Diagram"
+description: "Level 3: Component diagram for the Internet Banking System's web and API applications"
+version: "1.0"
+
+people:
+  - name: "Personal Banking Customer"
+    description: "A customer of the bank using online banking services"
+  - name: "Bank Administrator"
+    description: "Bank employee who manages user accounts and system configuration"
+  - name: "Customer Service Representative"
+    description: "Bank employee who handles customer inquiries and support requests"
+
+systems:
+  - name: "Web Application"
+    type: "web_app"
+    description: "Delivers the static content and the Internet banking SPA"
+    components:
+      - name: "Login Controller"
+        type: "component"
+        description: "Handles user authentication and session management"
+      
+      - name: "Account Dashboard"
+        type: "component"
+        description: "Shows account overview and recent transactions"
+      
+      - name: "Payment Controller"
+        type: "component"
+        description: "Manages payment form and submission process"
+      
+      - name: "Admin Panel"
+        type: "component"
+        description: "Interface for system configuration and user management"
+
+  - name: "API Application"
+    type: "api"
+    description: "Provides Internet banking functionality via API"
+    components:
+      - name: "Authentication Service"
+        type: "component"
+        description: "Manages user authentication and session tokens"
+      
+      - name: "Account Service"
+        type: "component"
+        description: "Handles account information and transaction history"
+      
+      - name: "Payment Service"
+        type: "component"
+        description: "Processes payment requests and validates transactions"
+      
+      - name: "Notification Service"
+        type: "component"
+        description: "Manages email notifications and alerts"
+      
+      - name: "Admin Service"
+        type: "component"
+        description: "Handles system configuration and user management operations"
+
+integrations:
+  - number: 1
+    source: "Personal Banking Customer"
+    depends-on: "Login Controller"
+    description: "Signs in using"
+    
+  - number: 2
+    source: "Login Controller"
+    depends-on: "Authentication Service"
+    description: "Validates credentials through"
+    
+  - number: 3
+    source: "Account Dashboard"
+    depends-on: "Account Service"
+    description: "Retrieves account information from"
+    
+  - number: 4
+    source: "Payment Controller"
+    depends-on: "Payment Service"
+    description: "Submits payment requests to"
+    
+  - number: 5
+    source: "Bank Administrator"
+    depends-on: "Admin Panel"
+    description: "Configures system using"
+    
+  - number: 6
+    source: "Admin Panel"
+    depends-on: "Admin Service"
+    description: "Makes administrative changes through"
+    
+  - number: 7
+    source: "Customer Service Representative"
+    depends-on: "Account Dashboard"
+    description: "Views customer information using"
+    
+  - number: 8
+    source: "Payment Service"
+    depends-on: "Notification Service"
+    description: "Triggers payment confirmations via"
+    
+  - number: 9
+    source: "Authentication Service"
+    depends-on: "Account Service"
+    description: "Retrieves user account details from"
+    
+  - number: 10
+    source: "Account Service"
+    depends-on: "Notification Service"
+    description: "Sends account alerts through" 
