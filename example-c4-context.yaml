@@ -1,0 +1,61 @@
+---
+level: "context"
+title: "Online Banking System - Context Diagram"
+description: "Level 1: Context diagram for the online banking system"
+version: "1.0"
+
+people:
+  - name: "Personal Banking Customer"
+    description: "A customer of the bank using online banking services"
+  - name: "Bank Administrator"
+    description: "Bank employee who manages user accounts and system configuration"
+  - name: "Customer Service Representative"
+    description: "Bank employee who handles customer inquiries and support requests"
+
+systems:
+  - name: "Internet Banking System"
+    type: "core"
+    description: "Allows customers to view account balances, make payments, and manage their accounts"
+
+  - name: "E-mail System"
+    type: "external"
+    description: "The bank's Microsoft Exchange email system"
+
+  - name: "Mainframe Banking System"
+    type: "external"
+    description: "Stores all core banking information about customers, accounts, transactions, etc."
+
+  - name: "Authentication System"
+    type: "external"
+    description: "Handles user authentication and authorization for bank systems"
+
+integrations:
+  - number: 1
+    source: "Personal Banking Customer"
+    depends-on: "Internet Banking System"
+    description: "Views account balances and makes payments using"
+    
+  - number: 2
+    source: "Bank Administrator"
+    depends-on: "Internet Banking System"
+    description: "Configures and maintains"
+    
+  - number: 3
+    source: "Customer Service Representative"
+    depends-on: "Internet Banking System"
+    description: "Views customer information using"
+    
+  - number: 4
+    source: "Internet Banking System"
+    depends-on: "E-mail System"
+    description: "Sends emails using"
+    
+  - number: 5
+    source: "Internet Banking System"
+    depends-on: "Mainframe Banking System"
+    description: "Gets account information from"
+    
+  - number: 6
+    source: "Internet Banking System"
+    depends-on: "Authentication System"
+    description: "Validates credentials using" 

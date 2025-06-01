@@ -1,0 +1,62 @@
+---
+level: "container"
+title: "Online Banking System - Container Diagram"
+description: "Level 2: Container diagram for the online banking system"
+version: "1.0"
+
+people:
+  - name: "Personal Banking Customer"
+    description: "A customer of the bank using online banking services"
+  - name: "Bank Administrator"
+    description: "Bank employee who manages user accounts and system configuration"
+  - name: "Customer Service Representative"
+    description: "Bank employee who handles customer inquiries and support requests"
+
+systems:
+  - name: "Internet Banking System"
+    description: "Allows customers to view account balances and make payments"
+    containers:
+      - name: "Web Application"
+        type: "web_app"
+        description: "Delivers the static content and the Internet banking SPA"
+      - name: "API Application"
+        type: "api"
+        description: "Provides Internet banking functionality via API"
+      - name: "Database"
+        type: "database"
+        description: "Stores user registration information, hashed auth credentials, etc."
+
+  - name: "E-mail System"
+    description: "External Microsoft Exchange system"
+    type: "external"
+
+integrations:
+  - number: 1
+    source: "Personal Banking Customer"
+    depends-on: "Web Application"
+    description: "Views account balances and makes payments using"
+    
+  - number: 2
+    source: "Web Application"
+    depends-on: "API Application"
+    description: "Makes API calls to"
+    
+  - number: 3
+    source: "API Application"
+    depends-on: "Database"
+    description: "Reads from and writes to"
+    
+  - number: 4
+    source: "API Application"
+    depends-on: "E-mail System"
+    description: "Sends emails using"
+    
+  - number: 5
+    source: "Bank Administrator"
+    depends-on: "Web Application"
+    description: "Manages system configuration and user accounts through"
+    
+  - number: 6
+    source: "Customer Service Representative"
+    depends-on: "Web Application"
+    description: "Views customer information and handles support requests using" 
