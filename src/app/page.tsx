@@ -1,57 +1,81 @@
-import React from 'react';
-import {Board} from '@mirohq/miro-api';
+'use client';
 
-import initMiroAPI from '../utils/initMiroAPI';
+import React, { useState } from 'react';
+import { C4Exporter } from '../components/C4Exporter';
 import '../assets/style.css';
 
-const getBoards = async () => {
-  const {miro, userId} = initMiroAPI();
+export default function Page() {
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [errors, setErrors] = useState<string[]>([]);
 
-  // redirect to auth url if user has not authorized the app
-  if (!userId || !(await miro.isAuthorized(userId))) {
-    return {
-      authUrl: miro.getAuthUrl(),
-    };
-  }
-
-  const api = miro.as(userId);
-
-  const boards: Board[] = [];
-  for await (const board of api.getAllBoards()) {
-    boards.push(board);
-  }
-
-  return {
-    boards,
+  const handleWarnings = (newWarnings: string[]) => {
+    console.log('Page received warnings:', newWarnings);
+    setWarnings(newWarnings);
   };
-};
 
-export default async function Page() {
-  const {boards, authUrl} = await getBoards();
+  const handleErrors = (newErrors: string[]) => {
+    console.log('Page received errors:', newErrors);
+    setErrors(newErrors);
+  };
 
   return (
-    <div>
-      <h3>API usage demo</h3>
-      <p className="p-small">API Calls need to be authenticated</p>
-      <p>
-        Apps that use the API usually would run on your own domain. During
-        development, test on http://localhost:3000
-      </p>
-      {authUrl ? (
-        <a className="button button-primary" href={authUrl} target="_blank">
-          Login
-        </a>
-      ) : (
-        <>
-          <p>This is a list of all the boards that your user has access to:</p>
-
-          <ul>
-            {boards?.map((board) => (
-              <li key={board.name}>{board.name}</li>
-            ))}
-          </ul>
-        </>
-      )}
+    <div style={{ padding: '10px', width: '100%' }}>
+      <div style={{ margin: '0 auto', textAlign: 'left', width: '100%' }}>
+        <h1 style={{ 
+          fontSize: '42px', 
+          marginBottom: '40px',
+          lineHeight: '1.2',
+          fontWeight: 'normal'
+        }}>
+          C4 Model<br/>
+          Exporter
+        </h1>
+        <p style={{ 
+          fontSize: '20px', 
+          lineHeight: '1.5', 
+          marginBottom: '20px',
+          color: '#333333'
+        }}>
+          Select a frame containing your C4 diagram and click export to generate a YAML file.
+        </p>
+        {warnings.length > 0 && (
+          <div style={{ 
+            marginBottom: '20px',
+            padding: '12px',
+            backgroundColor: '#fff0f0',
+            border: '1px solid #ffcdd2',
+            borderRadius: '4px'
+          }}>
+            <h2 style={{ fontWeight: 'bold', marginBottom: '8px' }}>Warnings:</h2>
+            <ul style={{ listStyleType: 'disc', paddingLeft: '20px' }}>
+              {warnings.map((warning, index) => (
+                <li key={index} style={{ marginBottom: index < warnings.length - 1 ? '8px' : 0 }}>
+                  {warning}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {errors.length > 0 && (
+          <div style={{ 
+            marginBottom: '20px',
+            padding: '12px',
+            backgroundColor: '#fff0f0',
+            border: '1px solid #ffcdd2',
+            borderRadius: '4px'
+          }}>
+            <h2 style={{ fontWeight: 'bold', marginBottom: '8px' }}>Errors:</h2>
+            <ul style={{ listStyleType: 'disc', paddingLeft: '20px' }}>
+              {errors.map((error, index) => (
+                <li key={index} style={{ marginBottom: index < errors.length - 1 ? '8px' : 0 }}>
+                  {error}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <C4Exporter onWarnings={handleWarnings} onErrors={handleErrors} />
+      </div>
     </div>
   );
 }
