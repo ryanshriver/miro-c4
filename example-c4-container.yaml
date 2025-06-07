@@ -1,62 +1,84 @@
----
-level: "container"
-title: "Online Banking System - Container Diagram"
-description: "Level 2: Container diagram for the online banking system"
-version: "1.0"
-
+level: Container
+title: Container Diagram (Level 2)
 people:
-  - name: "Personal Banking Customer"
-    description: "A customer of the bank using online banking services"
-  - name: "Bank Administrator"
-    description: "Bank employee who manages user accounts and system configuration"
-  - name: "Customer Service Representative"
-    description: "Bank employee who handles customer inquiries and support requests"
-
+  - name: Talent Administrator
+  - name: Employee
+containers:
+  - name: Talent DB
+    type: Database
+    description: Postgres SQL
+    dependencies:
+      in: 1
+      out: 1
+  - name: Talent API
+    type: Container
+    description: Node.js with Express back end
+    dependencies:
+      in: 2
+      out: 2
+  - name: Talent Web App
+    type: Web App
+    description: Node.js with React front end
+    dependencies:
+      in: 2
+      out: 1
+  - name: Employee Mobile Application
+    type: Mobile App
+    description: iOS and Android
+    dependencies:
+      in: 1
+      out: 1
 systems:
-  - name: "Internet Banking System"
-    description: "Allows customers to view account balances and make payments"
-    containers:
-      - name: "Web Application"
-        type: "web_app"
-        description: "Delivers the static content and the Internet banking SPA"
-      - name: "API Application"
-        type: "api"
-        description: "Provides Internet banking functionality via API"
-      - name: "Database"
-        type: "database"
-        description: "Stores user registration information, hashed auth credentials, etc."
-
-  - name: "E-mail System"
-    description: "External Microsoft Exchange system"
-    type: "external"
-
+  - name: Data Warehouse
+    description: MS SQL Server 2019
+    dependencies:
+      in: 1
+      out: 0
+  - name: Email System
+    description: Uses MS Office 365 Outlook
+    dependencies:
+      in: 1
+      out: 0
 integrations:
   - number: 1
-    source: "Personal Banking Customer"
-    depends-on: "Web Application"
-    description: "Views account balances and makes payments using"
-    
+    source: Talent API
+    depends-on: Talent DB
+    description:
+      - Reads and writes data to
   - number: 2
-    source: "Web Application"
-    depends-on: "API Application"
-    description: "Makes API calls to"
-    
+    source: Talent DB
+    depends-on: Data Warehouse
+    description:
+      - Sends talent data to
   - number: 3
-    source: "API Application"
-    depends-on: "Database"
-    description: "Reads from and writes to"
-    
+    source: Talent API
+    depends-on: Email System
+    description:
+      - Sends emails using
   - number: 4
-    source: "API Application"
-    depends-on: "E-mail System"
-    description: "Sends emails using"
-    
+    source: Talent Web App
+    depends-on: Talent API
+    description:
+      - interacts with
   - number: 5
-    source: "Bank Administrator"
-    depends-on: "Web Application"
-    description: "Manages system configuration and user accounts through"
-    
+    source: Talent Administrator
+    depends-on: Talent Web App
+    description:
+      - Updates talent data in
+      - Creates performance reviews in
+      - Makes hiring decision using
   - number: 6
-    source: "Customer Service Representative"
-    depends-on: "Web Application"
-    description: "Views customer information and handles support requests using" 
+    source: Employee
+    depends-on: Talent Web App
+    description:
+      - Maintains personal data
+  - number: 7
+    source: Employee
+    depends-on: Employee Mobile Application
+    description:
+      - Checks benefits
+  - number: 8
+    source: Employee Mobile Application
+    depends-on: Talent API
+    description:
+      - Interacts with

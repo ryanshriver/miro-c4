@@ -1,7 +1,7 @@
 /**
- * C4 Model Type Definitions
+ * C4 Context Model Type Definitions
  * 
- * This module defines the TypeScript interfaces and types for the C4 model structure.
+ * This module defines the TypeScript interfaces and types for the C4 Context model structure.
  * It includes definitions for the context-level diagram elements (people, systems, integrations)
  * as well as color constants used for identifying elements in Miro.
  */
@@ -11,7 +11,7 @@
  * This is the top-level structure that gets exported to YAML.
  */
 export interface C4ContextModel {
-  level: 'context';
+  level: 'Context';
   title: string;
   people: C4Person[];
   systems: C4System[];
@@ -34,10 +34,18 @@ export interface C4Person {
 export type C4System = {
   name: string;
   type: 'Core';
+  dependencies: {
+    in: number;
+    out: number;
+  };
 } | {
   name: string;
   type: 'External';
   description: string;
+  dependencies: {
+    in: number;
+    out: number;
+  };
 }
 
 /**
@@ -48,7 +56,7 @@ export interface C4Integration {
   number: number;
   source: string;
   'depends-on': string;
-  description: string;
+  description: string[];
 }
 
 /**

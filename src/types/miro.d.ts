@@ -40,7 +40,20 @@ declare namespace miro {
     shape: 'rectangle' | 'round_rectangle' | 'circle' | 'can';  // Shape type
     style: {
       fillColor: MiroColor;  // Shape's fill color (used to identify C4 element types)
+      fontFamily?: string;
+      fontSize?: number;
+      textAlign?: string;
+      textAlignVertical?: string;
     };
+  }
+
+  /**
+   * Represents a stencil in a Miro board.
+   * Stencils are shapes that are used to represent C4 model elements (people, systems)
+   * with specific colors and styles.
+   */
+  interface Stencil extends Shape {
+    type: 'stencil';
   }
 
   /**
@@ -52,12 +65,14 @@ declare namespace miro {
     start: ConnectorEndpoint;  // Starting point connection
     end: ConnectorEndpoint;    // Ending point connection
     style?: {
-      startStrokeCap?: 'none' | 'arrow' | 'stealth' | 'diamond' | 'rounded_stealth';  // Style of start point
-      endStrokeCap?: 'none' | 'arrow' | 'stealth' | 'diamond' | 'rounded_stealth';    // Style of end point
-      strokeStyle?: 'normal' | 'dashed';
-      strokeWidth?: number;
-      strokeColor?: string;
+      startStrokeCap?: 'arrow' | 'rounded_stealth';
+      endStrokeCap?: 'arrow' | 'rounded_stealth';
     };
+    captions?: Array<{
+      content?: string;
+    }>;
+    text?: string;
+    title?: string;
   }
 
   /**
@@ -79,7 +94,7 @@ declare namespace miro {
    */
   interface BoardItem {
     id: string;      // Unique identifier
-    type: string;    // Item type (e.g., 'frame', 'shape', 'connector')
+    type: 'shape' | 'connector' | 'text' | 'frame' | 'stencil' | 'sticky_note';    // Item type
     x: number;       // X coordinate on the board
     y: number;       // Y coordinate on the board
     content: string; // Text content (if applicable)

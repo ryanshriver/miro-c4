@@ -27,8 +27,7 @@ export default function Page() {
           lineHeight: '1.2',
           fontWeight: 'normal'
         }}>
-          C4 Model<br/>
-          Exporter
+          C4.ai
         </h1>
         <p style={{ 
           fontSize: '20px', 
@@ -36,7 +35,9 @@ export default function Page() {
           marginBottom: '20px',
           color: '#333333'
         }}>
-          Select a frame containing your C4 diagram and click export to generate a YAML file.
+          1. Choose a diagram and export<br/>
+          2. Copy+paste into GenAI<br/>
+          3. Modernize by Prompt<br/>
         </p>
         {warnings.length > 0 && (
           <div style={{ 
