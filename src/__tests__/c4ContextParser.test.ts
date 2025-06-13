@@ -62,7 +62,7 @@ describe('parseFrameToC4Context', () => {
     }
   });
 
-  it('should detect bidirectional relationships and return errors', async () => {
+  it('should handle bidirectional relationships in the model', async () => {
     const bidirectionalConnector = {
       ...mockConnector,
       style: {
@@ -79,9 +79,10 @@ describe('parseFrameToC4Context', () => {
 
     const result = await parseFrameToC4Context(mockFrame);
 
-    expect(result.model).toBeUndefined();
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors[0]).toContain('bidirectional dependencies');
+    expect(result.model).toBeDefined();
+    expect(result.model?.systems).toHaveLength(1);
+    expect(result.model?.systems[0].name).toBe('Talent Systems');
+    expect(result.errors).toHaveLength(0);
   });
 
   it('should maintain left-to-right ordering for people', async () => {

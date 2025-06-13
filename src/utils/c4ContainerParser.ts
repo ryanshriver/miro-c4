@@ -26,18 +26,20 @@
  * further processing.
  */
 
-import { C4ContainerModel, C4ContainerColors } from '../types/c4Container';
-import { cleanContent, parseHtmlContent, isInLegendArea, ParseResult, processConnectors, isPerson } from './c4Utils';
+import { C4ContainerModel, C4ContainerColors, C4Container, C4Relationship } from '../types/c4Container';
+import { cleanContent, parseHtmlContent, isInLegendArea, ParseResult, processConnectors } from './c4Utils';
+import { isPerson } from './c4ContextParser';
+import { C4Integration } from '../types/c4Context';
 
 /**
  * Intermediate data structures for container processing
  */
 interface ContainerProcessingState {
   model: C4ContainerModel;
-  warnings: string[];
-  errors: string[];
   shapeMap: Map<string, miro.Shape>;
   containerNames: Set<string>;
+  errors: string[];
+  warnings: string[];
   processedStencils: Set<string>;
 }
 
@@ -182,209 +184,135 @@ function determineContainerType(shape: miro.Shape, name: string): string {
  * 
  * @param shape - Shape to process
  * @param items - All board items for person detection
- * @param incomingCount - Map of incoming dependency counts
- * @param outgoingCount - Map of outgoing dependency counts
- * @param state - Processing state containing model and tracking data
+ * @param model - C4 container model to update
+ * @param errors - Array to store errors encountered during processing
+ * @param frame - Miro frame for legend area detection
  */
 async function processShapeIntoModel(
   shape: miro.Shape,
   items: miro.BoardItem[],
-  incomingCount: Map<string, number>,
-  outgoingCount: Map<string, number>,
-  state: ContainerProcessingState
+  model: C4ContainerModel,
+  errors: string[],
+  frame: miro.Frame
 ): Promise<void> {
-  // Skip empty shapes
-  if (!shape.content) {
-    console.log('Skipping empty content:', shape.id);
+  // Skip shapes without required properties
+  if (!shape.content || !shape.style?.fillColor || !shape.shape) {
     return;
   }
 
-  // Skip shapes that appear to be from the legend or placeholders
-  const content = cleanContent(shape.content).toLowerCase();
-  if (content === 'container' || 
-      content === 'role' || 
-      content === 'core system name' || 
-      content === 'supporting system' || 
-      content === 'optional description' ||
-      content.includes('delete this placeholder') ||
-      content.includes('create a new')) {
-    console.log('Skipping legend/placeholder content:', {
-      id: shape.id,
-      content: content
-    });
+  // Skip shapes in legend area
+  if (isInLegendArea(shape, frame)) {
     return;
   }
-  
-  // Parse the shape's content
+
   const { title, description } = parseHtmlContent(shape.content);
-  console.log('Parsed content:', {
-    id: shape.id,
-    title,
-    description,
-    rawContent: shape.content
-  });
-  
-  let name = title || cleanContent(shape.content).split('\n')[0] || '';
-  let desc = description || cleanContent(shape.content).split('\n').slice(1).join('\n');
-  
-  // Fix Node.ks typo in description
-  if (desc.includes('Node.ks')) {
-    desc = desc.replace('Node.ks', 'Node.js');
-  }
-  
-  // Skip if no valid name was found
+  const name = title || cleanContent(shape.content);
+
+  // Skip if no name
   if (!name) {
-    console.log('Skipping due to no valid name:', shape.id);
+    errors.push(`Shape at (${shape.x}, ${shape.y}) has no name`);
     return;
   }
-  
+
   // Check for person by looking for nearby circles
   if (await isPerson(shape, items)) {
     console.log('Found person:', {
       name,
       hasNearbyCircle: true
     });
-    state.model.people.push({ name });
+    model.people.push({ name });
     return;
   }
-  
-  // Process containers and external systems
-  if (shape.shape === 'round_rectangle') {
-    // Round rectangles that aren't people are containers
-    const containerType = determineContainerType(shape, name);
-    
-    // Log container type detection
-    console.log('Checking container type:', {
+
+  // Check for external system
+  if (shape.style.fillColor === C4ContainerColors.EXTERNAL_SYSTEM && shape.shape === 'round_rectangle') {
+    console.log('Found external system:', {
       name,
-      type: shape.type,
-      shape: shape.shape,
-      fillColor: shape.style?.fillColor,
-      determinedType: containerType
+      description
     });
-    
-    // Add to containers if not duplicate
-    if (!state.containerNames.has(name)) {
-      state.model.containers.push({
-        name,
-        type: containerType as 'Container' | 'Web App' | 'Database' | 'Mobile App',
-        description: desc || '',
-        dependencies: {
-          in: incomingCount.get(name) || 0,
-          out: outgoingCount.get(name) || 0
-        }
-      });
-      state.containerNames.add(name);
-      
-      console.log('Found container:', {
-        name,
-        type: containerType,
-        desc,
-        content: shape.content
-      });
-    }
-  } else if (shape.shape === 'can') {
-    // Database container
-    console.log('Found database container:', {
+    model.systems.push({
       name,
-      desc,
-      content: shape.content
-    });
-    if (!state.containerNames.has(name)) {
-      state.model.containers.push({
-        name,
-        type: 'Database',
-        description: desc || '',
-        dependencies: {
-          in: incomingCount.get(name) || 0,
-          out: outgoingCount.get(name) || 0
-        }
-      });
-      state.containerNames.add(name);
-    }
-  } else if (shape.shape === 'rectangle') {
-    // Check if this is a Web App, Mobile App, or external system
-    const nameLower = name.toLowerCase();
-    
-    // Log container type detection
-    console.log('Checking container type:', {
-      name,
-      nameLower,
-      type: shape.type,
-      shape: shape.shape,
-      fillColor: shape.style?.fillColor
-    });
-    
-    if (nameLower.includes('web')) {
-      // Web App container
-      if (!state.containerNames.has(name)) {
-        state.model.containers.push({
-          name,
-          type: 'Web App',
-          description: desc || '',
-          dependencies: {
-            in: incomingCount.get(name) || 0,
-            out: outgoingCount.get(name) || 0
-          }
-        });
-        state.containerNames.add(name);
+      description,
+      dependencies: {
+        in: 0,
+        out: 0
       }
-    } else if (nameLower.includes('mobile')) {
-      // Mobile App container
-      if (!state.containerNames.has(name)) {
-        state.model.containers.push({
-          name,
-          type: 'Mobile App',
-          description: desc || '',
-          dependencies: {
-            in: incomingCount.get(name) || 0,
-            out: outgoingCount.get(name) || 0
-          }
-        });
-        state.containerNames.add(name);
-      }
-    } else {
-      // External system
-      state.model.systems.push({
-        name,
-        description: desc || '',
-        dependencies: {
-          in: incomingCount.get(name) || 0,
-          out: outgoingCount.get(name) || 0
-        }
-      });
-      
-      console.log('Found external system:', {
-        name,
-        desc,
-        content: shape.content
-      });
-    }
-    
-    console.log('Found container or system:', {
-      name,
-      type: nameLower.includes('web') ? 'Web App' : nameLower.includes('mobile') ? 'Mobile App' : 'External System',
-      desc,
-      content: shape.content
     });
+    return;
   }
+
+  // Check for container
+  if (shape.style.fillColor === C4ContainerColors.CONTAINER && shape.shape === 'round_rectangle') {
+    console.log('Found container:', {
+      name,
+      description
+    });
+    model.containers.push({
+      name,
+      type: 'Container',
+      description,
+      dependencies: {
+        in: 0,
+        out: 0
+      }
+    });
+    return;
+  }
+
+  // Check for web app
+  if (shape.style.fillColor === C4ContainerColors.WEB_BROWSER && shape.shape === 'round_rectangle') {
+    console.log('Found web app:', {
+      name,
+      description
+    });
+    model.containers.push({
+      name,
+      type: 'Web App',
+      description,
+      dependencies: {
+        in: 0,
+        out: 0
+      }
+    });
+    return;
+  }
+
+  // Check for database
+  if (shape.shape === 'can') {
+    console.log('Found database:', {
+      name,
+      description
+    });
+    model.containers.push({
+      name,
+      type: 'Database',
+      description,
+      dependencies: {
+        in: 0,
+        out: 0
+      }
+    });
+    return;
+  }
+
+  // If we get here, the shape wasn't recognized
+  errors.push(`Unrecognized shape at (${shape.x}, ${shape.y}): ${name}`);
 }
 
 /**
  * Processes all collected shapes into model elements in the second pass.
  * 
  * @param items - All board items for person detection
- * @param incomingCount - Map of incoming dependency counts
- * @param outgoingCount - Map of outgoing dependency counts
  * @param state - Processing state containing collections and model
+ * @param frame - Miro frame for legend area detection
  */
 async function processAllShapesIntoModel(
   items: miro.BoardItem[],
-  incomingCount: Map<string, number>,
-  outgoingCount: Map<string, number>,
-  state: ContainerProcessingState
+  state: ContainerProcessingState,
+  frame: miro.Frame
 ): Promise<void> {
   for (const [id, shape] of state.shapeMap) {
-    await processShapeIntoModel(shape, items, incomingCount, outgoingCount, state);
+    await processShapeIntoModel(shape, items, state.model, state.errors, frame);
   }
 }
 
@@ -445,68 +373,65 @@ function validateAndReturnContainerResult(
  *          warnings for non-critical issues, and errors for diagram violations
  */
 export async function parseFrameToC4Container(frame: miro.Frame): Promise<ParseResult<C4ContainerModel>> {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
   // Get all items in the frame
-  const items = await getFrameItems(frame);
-  
-  console.log('Processing frame:', frame.title);
-  console.log('Found items:', items.length);
-  console.log('All items with full details:', items.map(item => {
-    if (item.type === 'shape') {
-      const shape = item as miro.Shape;
-      return {
-        id: shape.id,
-        type: item.type,
-        shape: shape.shape,
-        style: shape.style,
-        content: shape.content,
-        x: shape.x,
-        y: shape.y
-      };
-    }
-    return {
-      id: item.id,
-      type: item.type,
-      x: item.x,
-      y: item.y
-    };
-  }));
-  
-  // Initialize processing state
+  const allItems = await miro.board.get();
+  const items = allItems.filter(item => frame.childrenIds.includes(item.id));
+
+  // First pass: collect shapes and connectors
   const state: ContainerProcessingState = {
     model: {
       level: 'Container',
-      title: frame.title || 'Container Diagram (Level 2)',
+      title: frame.title || 'Container Diagram',
       people: [],
       containers: [],
       systems: [],
       integrations: []
     },
-    warnings: [],
-    errors: [],
     shapeMap: new Map(),
     containerNames: new Set(),
+    errors: [],
+    warnings: [],
     processedStencils: new Set()
   };
-  
-  // First pass: collect shapes for connector processing
-  await collectShapesForProcessing(items, frame, state);
 
-  // Get all connectors (excluding those in legend area)
-  const connectors = items.filter(item => 
-    item.type === 'connector' && 
-    !isInLegendArea(item, frame)
-  ) as miro.Connector[];
+  // Process shapes and connectors
+  for (const item of items) {
+    if (item.type === 'shape' || item.type === 'stencil') {
+      state.shapeMap.set(item.id, item as miro.Shape);
+    }
+  }
 
-  // Process connectors using shared function
-  const { integrations, incomingCount, outgoingCount, bidirectionalRelationships } = 
-    processConnectors(connectors, state.shapeMap);
+  // Process connectors to get dependency counts
+  const connectors = items.filter((item): item is miro.Connector => item.type === 'connector');
+  const { integrations, incomingCount, outgoingCount, bidirectionalRelationships } = await processConnectors(connectors, state.shapeMap);
 
   // Second pass: process shapes into model elements
-  await processAllShapesIntoModel(items, incomingCount, outgoingCount, state);
+  await processAllShapesIntoModel(items, state, frame);
 
   // Add integrations to model
   state.model.integrations = integrations;
 
-  // Validate and return result
-  return validateAndReturnContainerResult(state, bidirectionalRelationships);
+  // Update dependency counts
+  state.model.containers.forEach(container => {
+    container.dependencies = {
+      in: incomingCount.get(container.name) || 0,
+      out: outgoingCount.get(container.name) || 0
+    };
+  });
+
+  state.model.systems.forEach(system => {
+    system.dependencies = {
+      in: incomingCount.get(system.name) || 0,
+      out: outgoingCount.get(system.name) || 0
+    };
+  });
+
+  return {
+    model: state.model,
+    errors: state.errors,
+    warnings
+  };
 } 

@@ -195,36 +195,6 @@ export async function detectC4DiagramType(frame: miro.Frame): Promise<'context' 
 }
 
 /**
- * Determines if a shape represents a person based on proximity to circles.
- * Used by both Context and Container parsers to ensure consistent handling.
- */
-export async function isPerson(shape: miro.Shape, items: miro.BoardItem[]): Promise<boolean> {
-  // Early return if not a round rectangle
-  if (shape.shape !== 'round_rectangle') return false;
-
-  // Early return if no items to check
-  if (!items.length) return false;
-
-  // Find the closest circle within threshold
-  const thresholdX = 100;
-  const thresholdY = 150;
-  
-  // Filter for circles first to reduce iterations
-  const circles = items.filter((item): item is miro.Shape => 
-    item.type === 'shape' && 
-    'shape' in item && 
-    item.shape === 'circle'
-  );
-  if (!circles.length) return false;
-
-  // Check if any circle is within threshold
-  return circles.some(circle => 
-    Math.abs(circle.x - shape.x) < thresholdX && 
-    Math.abs(circle.y - shape.y) < thresholdY
-  );
-}
-
-/**
  * Strips HTML tags from a string, preserving the text content.
  * Also handles common HTML entities and ensures proper spacing between words.
  */
@@ -255,9 +225,7 @@ export async function processConnectors(connectors: miro.Connector[], shapeMap: 
   const outgoingCount = new Map<string, number>();
   const bidirectionalRelationships: { source: string; target: string }[] = [];
 
-  // Get all shapes once to avoid repeated lookups
-  const allShapes = Array.from(shapeMap.values());
-
+  // First pass: check for bidirectional relationships
   for (const connector of connectors) {
     const sourceShape = shapeMap.get(connector.start?.item as string);
     const targetShape = shapeMap.get(connector.end?.item as string);
@@ -278,12 +246,24 @@ export async function processConnectors(connectors: miro.Connector[], shapeMap: 
           target: targetTitle
         });
       }
-      continue;
     }
+  }
 
-    // Use async isPerson logic
-    const sourceIsPerson = await isPerson(sourceShape, allShapes);
-    const targetIsPerson = await isPerson(targetShape, allShapes);
+  // If we found any bidirectional relationships, return early
+  if (bidirectionalRelationships.length > 0) {
+    return { integrations: [], incomingCount, outgoingCount, bidirectionalRelationships };
+  }
+
+  // Second pass: process valid connectors
+  for (const connector of connectors) {
+    const sourceShape = shapeMap.get(connector.start?.item as string);
+    const targetShape = shapeMap.get(connector.end?.item as string);
+    if (!sourceShape || !targetShape) continue;
+
+    const hasStartArrow = connector.style?.startStrokeCap === 'arrow' || 
+                         connector.style?.startStrokeCap === 'rounded_stealth';
+    const hasEndArrow = connector.style?.endStrokeCap === 'arrow' || 
+                       connector.style?.endStrokeCap === 'rounded_stealth';
 
     const sourceTitle = (parseHtmlContent(sourceShape.content)).title || cleanContent(sourceShape.content);
     const targetTitle = (parseHtmlContent(targetShape.content)).title || cleanContent(targetShape.content);
@@ -300,18 +280,14 @@ export async function processConnectors(connectors: miro.Connector[], shapeMap: 
         : []
     });
 
-    // Only count dependencies if neither source nor target is a person
-    if (!sourceIsPerson && !targetIsPerson) {
-      // If there's an arrow at the end, the source depends on the target
-      if (hasEndArrow) {
-        outgoingCount.set(sourceTitle, (outgoingCount.get(sourceTitle) || 0) + 1);
-        incomingCount.set(targetTitle, (incomingCount.get(targetTitle) || 0) + 1);
-      }
-      // If there's an arrow at the start, the target depends on the source
-      else if (hasStartArrow) {
-        outgoingCount.set(targetTitle, (outgoingCount.get(targetTitle) || 0) + 1);
-        incomingCount.set(sourceTitle, (incomingCount.get(sourceTitle) || 0) + 1);
-      }
+    // Count dependencies based on arrow direction
+    if (hasEndArrow) {
+      outgoingCount.set(sourceTitle, (outgoingCount.get(sourceTitle) || 0) + 1);
+      incomingCount.set(targetTitle, (incomingCount.get(targetTitle) || 0) + 1);
+    }
+    else if (hasStartArrow) {
+      outgoingCount.set(targetTitle, (outgoingCount.get(targetTitle) || 0) + 1);
+      incomingCount.set(sourceTitle, (incomingCount.get(sourceTitle) || 0) + 1);
     }
   }
 

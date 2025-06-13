@@ -12,8 +12,9 @@
  * - Handling text content and descriptions
  */
 
-import { C4ContextModel, C4Colors, C4System } from '../types/c4Context';
-import { cleanContent, parseHtmlContent, isInLegendArea, ParseResult, processConnectors, isPerson } from './c4Utils';
+import { C4Colors } from '../types/c4Context';
+import { C4ContextModel, C4Person, C4System, C4Integration } from '../types/c4Context';
+import { cleanContent, parseHtmlContent, isInLegendArea, processConnectors, ParseResult } from './c4Utils';
 export { parseFrameToC4Container } from './c4ContainerParser';
 
 /**
@@ -281,7 +282,17 @@ export async function parseFrameToC4Context(frame: miro.Frame): Promise<ParseRes
   const items = allItems.filter(item => frame.childrenIds.includes(item.id));
   
   if (!items || items.length === 0) {
-    return { model: undefined, errors: ['No items found in frame'], warnings: [] };
+    return { 
+      model: {
+        level: 'Context',
+        title: frame.title || 'Context Diagram',
+        people: [],
+        systems: [],
+        integrations: []
+      }, 
+      errors: [], 
+      warnings: [] 
+    };
   }
 
   // Separate shapes and connectors with proper type filtering
@@ -299,8 +310,8 @@ export async function parseFrameToC4Context(frame: miro.Frame): Promise<ParseRes
   // Create a map of shapes for quick lookup
   const shapeMap = new Map(shapes.map(shape => [shape.id, shape]));
 
-  // Process connectors first to get dependency counts
-  const { integrations, incomingCount, outgoingCount, bidirectionalRelationships } = await processConnectors(connectors, shapeMap);
+  // Process connectors first to get dependency counts and check for bidirectional relationships
+  const { bidirectionalRelationships } = await processConnectors(connectors, shapeMap);
 
   // If there are any bidirectional relationships, add them as errors and return without model
   if (bidirectionalRelationships.length > 0) {
@@ -308,8 +319,12 @@ export async function parseFrameToC4Context(frame: miro.Frame): Promise<ParseRes
     bidirectionalRelationships.forEach(rel => {
       errors.push(`${rel.source} and ${rel.target}`);
     });
+    errors.push('Please fix these bidirectional relationships by using a single arrow to show the primary dependency direction.');
     return { model: undefined, errors, warnings };
   }
+
+  // Process connectors again to get the full integration data
+  const { integrations, incomingCount, outgoingCount } = await processConnectors(connectors, shapeMap);
 
   // Process all shapes
   const people: ProcessedPerson[] = [];
@@ -403,4 +418,34 @@ function isCoreSystem(shape: miro.Shape): boolean {
 
 function isSupportingSystem(shape: miro.Shape): boolean {
   return shape.shape === 'rectangle';
+}
+
+/**
+ * Determines if a shape represents a person based on proximity to circles.
+ * Used by both Context and Container parsers to ensure consistent handling.
+ */
+export async function isPerson(shape: miro.Shape, items: miro.BoardItem[]): Promise<boolean> {
+  // Early return if not a round rectangle
+  if (shape.shape !== 'round_rectangle') return false;
+
+  // Early return if no items to check
+  if (!items.length) return false;
+
+  // Find the closest circle within threshold
+  const thresholdX = 100;
+  const thresholdY = 150;
+  
+  // Filter for circles first to reduce iterations
+  const circles = items.filter((item): item is miro.Shape => 
+    item.type === 'shape' && 
+    'shape' in item && 
+    item.shape === 'circle'
+  );
+  if (!circles.length) return false;
+
+  // Check if any circle is within threshold
+  return circles.some(circle => 
+    Math.abs(circle.x - shape.x) < thresholdX && 
+    Math.abs(circle.y - shape.y) < thresholdY
+  );
 } 

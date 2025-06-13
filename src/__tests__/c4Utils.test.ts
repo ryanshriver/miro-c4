@@ -15,6 +15,7 @@ import {
   mockSupportingSystemShape,
   mockFrame,
   mockConnector,
+  mockSystemConnector,
   mockPersonCircle
 } from './fixtures/mockShapes';
 
@@ -126,57 +127,77 @@ describe('c4Utils', () => {
   });
 
   describe('processConnectors', () => {
-    beforeEach(() => {
-      jest.clearAllMocks();
-    });
-
     it('should create integrations from connectors', async () => {
       const shapeMap = new Map([
-        [mockPersonShape.id, mockPersonShape],
-        [mockCoreSystemShape.id, mockCoreSystemShape],
-        [mockPersonCircle.id, mockPersonCircle]
+        ['core-system-1', mockCoreSystemShape],
+        ['supporting-system-1', mockSupportingSystemShape]
       ]);
       const result = await processConnectors([mockConnector], shapeMap);
       expect(result.integrations).toHaveLength(1);
       expect(result.integrations[0]).toEqual({
         number: 1,
-        source: 'Employee',
-        'depends-on': 'Talent Systems',
-        description: ['Maintains personal data']
+        source: 'Talent Systems',
+        'depends-on': 'Email System',
+        description: ['Sends employee data']
       });
     });
 
     it('should count dependencies correctly', async () => {
       const shapeMap = new Map([
-        [mockPersonShape.id, mockPersonShape],
-        [mockCoreSystemShape.id, mockCoreSystemShape],
-        [mockPersonCircle.id, mockPersonCircle]
+        ['core-system-1', mockCoreSystemShape],
+        ['supporting-system-1', mockSupportingSystemShape]
       ]);
       const result = await processConnectors([mockConnector], shapeMap);
-      expect(result.outgoingCount.get('Employee')).toBe(1);
-      expect(result.incomingCount.get('Talent Systems')).toBe(1);
+      expect(result.outgoingCount.get('Talent Systems')).toBe(1);
+      expect(result.incomingCount.get('Email System')).toBe(1);
     });
 
     it('should handle connectors without captions', async () => {
-      const connectorWithoutCaptions = { ...mockConnector, captions: undefined };
+      const connectorWithoutCaption = {
+        ...mockConnector,
+        captions: []
+      };
       const shapeMap = new Map([
-        [mockPersonShape.id, mockPersonShape],
-        [mockCoreSystemShape.id, mockCoreSystemShape],
-        [mockPersonCircle.id, mockPersonCircle]
+        ['core-system-1', mockCoreSystemShape],
+        ['supporting-system-1', mockSupportingSystemShape]
       ]);
-      const result = await processConnectors([connectorWithoutCaptions], shapeMap);
+      const result = await processConnectors([connectorWithoutCaption], shapeMap);
       expect(result.integrations[0].description).toEqual([]);
     });
 
-    it('should skip connectors without valid start/end items', async () => {
-      const invalidConnector = { ...mockConnector, start: { item: 'invalid', position: { x: 0, y: 0 } } };
+    it('should handle HTML tags in descriptions', async () => {
+      const connectorWithHtml = {
+        ...mockConnector,
+        captions: [{
+          content: '<p>This is a <strong>test</strong> description</p>'
+        }]
+      };
       const shapeMap = new Map([
-        [mockPersonShape.id, mockPersonShape],
-        [mockCoreSystemShape.id, mockCoreSystemShape],
-        [mockPersonCircle.id, mockPersonCircle]
+        ['core-system-1', mockCoreSystemShape],
+        ['supporting-system-1', mockSupportingSystemShape]
       ]);
-      const result = await processConnectors([invalidConnector], shapeMap);
-      expect(result.integrations).toHaveLength(0);
+      const result = await processConnectors([connectorWithHtml], shapeMap);
+      expect(result.integrations[0].description).toEqual(['This is a test description']);
+    });
+
+    it('should handle bidirectional relationships', async () => {
+      const bidirectionalConnector = {
+        ...mockConnector,
+        style: {
+          startStrokeCap: 'arrow' as 'arrow' | 'rounded_stealth' | undefined,
+          endStrokeCap: 'arrow' as 'arrow' | 'rounded_stealth' | undefined
+        }
+      };
+      const shapeMap = new Map([
+        ['core-system-1', mockCoreSystemShape],
+        ['supporting-system-1', mockSupportingSystemShape]
+      ]);
+      const result = await processConnectors([bidirectionalConnector], shapeMap);
+      expect(result.bidirectionalRelationships).toHaveLength(1);
+      expect(result.bidirectionalRelationships[0]).toEqual({
+        source: 'Talent Systems',
+        target: 'Email System'
+      });
     });
   });
 

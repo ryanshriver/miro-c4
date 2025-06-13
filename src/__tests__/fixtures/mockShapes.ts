@@ -75,19 +75,19 @@ export const mockConnector: miro.Connector = {
   y: 150,
   content: '',
   start: {
-    item: 'person-1',
-    position: { x: 0, y: 0 }
-  },
-  end: {
     item: 'core-system-1',
     position: { x: 0, y: 0 }
   },
+  end: {
+    item: 'supporting-system-1',
+    position: { x: 0, y: 0 }
+  },
   style: {
-    startStrokeCap: 'arrow',
-    endStrokeCap: 'arrow'
+    startStrokeCap: undefined,
+    endStrokeCap: 'arrow' as 'arrow' | 'rounded_stealth' | undefined
   },
   captions: [
-    { content: 'Maintains personal data' }
+    { content: '<p>Sends employee data</p>' }
   ]
 };
 
@@ -102,4 +102,28 @@ export const mockFrame: miro.Frame = {
   childrenIds: ['person-1', 'core-system-1', 'connector-1', 'circle-1'],
   children: [],
   content: ''
+};
+
+// Add a mock system connector for testing system-to-system dependencies
+export const mockSystemConnector: miro.Connector = {
+  id: 'system-connector-1',
+  type: 'connector',
+  x: 400,
+  y: 100,
+  content: '',
+  start: {
+    item: 'core-system-1',
+    position: { x: 0, y: 0 }
+  },
+  end: {
+    item: 'supporting-system-1',
+    position: { x: 0, y: 0 }
+  },
+  style: {
+    startStrokeCap: undefined,
+    endStrokeCap: 'arrow' as 'arrow' | 'rounded_stealth' | undefined
+  },
+  captions: [
+    { content: '<p>Uses email service</p>' }
+  ]
 }; 

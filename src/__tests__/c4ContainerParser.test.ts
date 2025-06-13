@@ -285,18 +285,18 @@ describe('parseFrameToC4Container', () => {
 
     const testFrame = {
       ...mockContainerFrame,
-      childrenIds: ['placeholder', 'legend-item', 'webapp-1']
+      childrenIds: ['placeholder', 'legend-item', 'webapp-1', 'connector-1']
     };
 
     mockMiroGet.mockResolvedValue([
       placeholderShape,
       legendShape,
-      mockWebAppShape
+      mockWebAppShape,
+      mockContainerConnector
     ]);
 
     const result = await parseFrameToC4Container(testFrame);
 
-    // Should only process the web app, skipping placeholder and legend
     expect(result.model?.containers).toHaveLength(1);
     expect(result.model?.containers[0].name).toBe('Talent Web App');
   });
@@ -315,17 +315,17 @@ describe('parseFrameToC4Container', () => {
 
     const testFrame = {
       ...mockContainerFrame,
-      childrenIds: ['webapp-1', 'duplicate-webapp']
+      childrenIds: ['webapp-1', 'duplicate-webapp', 'connector-1']
     };
 
     mockMiroGet.mockResolvedValue([
       mockWebAppShape,
-      duplicateContainer
+      duplicateContainer,
+      mockContainerConnector
     ]);
 
     const result = await parseFrameToC4Container(testFrame);
 
-    // Should only have one container despite two shapes with same name
     expect(result.model?.containers).toHaveLength(1);
     expect(result.model?.containers[0].name).toBe('Talent Web App');
   });
@@ -349,18 +349,18 @@ describe('parseFrameToC4Container', () => {
 
     const testFrame = {
       ...mockContainerFrame,
-      childrenIds: ['invalid', 'empty-content', 'webapp-1']
+      childrenIds: ['invalid', 'empty-content', 'webapp-1', 'connector-1']
     };
 
     mockMiroGet.mockResolvedValue([
       invalidShape,
       emptyContentShape,
-      mockWebAppShape // Valid shape
+      mockWebAppShape, // Valid shape
+      mockContainerConnector
     ]);
 
     const result = await parseFrameToC4Container(testFrame);
 
-    // Should only process the valid shape
     expect(result.model?.containers).toHaveLength(1);
     expect(result.model?.containers[0].name).toBe('Talent Web App');
   });
@@ -382,6 +382,10 @@ describe('parseFrameToC4Container', () => {
         item: 'api-1',
         position: { x: 0.5, y: 0.5 },
       },
+      style: {
+        startStrokeCap: undefined,
+        endStrokeCap: 'arrow' as 'arrow' | 'rounded_stealth' | undefined
+      }
     };
 
     const testFrame = {
@@ -403,7 +407,7 @@ describe('parseFrameToC4Container', () => {
     expect(result.model?.containers).toHaveLength(2);
     
     const webApp = result.model?.containers.find(c => c.name === 'Talent Web App');
-    expect(webApp?.dependencies.in).toBe(1);  // Incoming from Employee
+    expect(webApp?.dependencies.in).toBe(0);  // No incoming from Employee (person)
     expect(webApp?.dependencies.out).toBe(1); // Outgoing to API
     
     const api = result.model?.containers.find(c => c.name === 'Talent API');
