@@ -31,16 +31,10 @@ export interface C4Person {
  * Core systems are identified as black round rectangles.
  * External systems are identified as light gray rectangles and require descriptions.
  */
-export type C4System = {
+export interface C4System {
   name: string;
-  type: 'Core';
-  dependencies: {
-    in: number;
-    out: number;
-  };
-} | {
-  name: string;
-  type: 'External';
+  number: number;
+  type: 'Core' | 'External';
   description?: string;
   dependencies: {
     in: number;
@@ -56,7 +50,7 @@ export interface C4Integration {
   number: number;
   source: string;
   'depends-on': string;
-  description: string[];
+  description?: string;
 }
 
 /**

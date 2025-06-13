@@ -200,8 +200,11 @@ function buildSystemsArray(
   incomingCount: Map<string, number>,
   outgoingCount: Map<string, number>
 ): C4System[] {
+  let systemNumber = 1;  // Counter for system numbers
+
   const coreSystems = elements.coreSystems.map(s => ({
     name: s.name,
+    number: systemNumber++,
     type: 'Core' as const,
     dependencies: {
       in: incomingCount.get(s.name) || 0,
@@ -217,6 +220,7 @@ function buildSystemsArray(
     })
     .map(s => ({
       name: s.name,
+      number: systemNumber++,
       type: 'External' as const,
       description: s.description,
       dependencies: {
@@ -236,20 +240,21 @@ function buildSystemsArray(
  * @param model - Parsed C4 context model
  * @param warnings - Array of warning messages
  * @param errors - Array of error messages
- * @param bidirectionalRelationships - Array of detected bidirectional relationships
+ * @param bidirectionalRelationships - Set of detected bidirectional relationships
  * @returns Parse result with model (if valid) or errors
  */
 function validateAndReturnResult(
   model: C4ContextModel,
   warnings: string[],
   errors: string[],
-  bidirectionalRelationships: { source: string; target: string }[]
+  bidirectionalRelationships: Set<string>
 ): ParseResult<C4ContextModel> {
   // If there are any bidirectional relationships, add them as errors and return without model
-  if (bidirectionalRelationships.length > 0) {
-    errors.push(`Detected ${bidirectionalRelationships.length} bidirectional dependencies (connectors with arrows on both ends) between:`);
-    bidirectionalRelationships.forEach(rel => {
-      errors.push(`${rel.source} and ${rel.target}`);
+  if (bidirectionalRelationships.size > 0) {
+    errors.push(`Detected ${bidirectionalRelationships.size} bidirectional dependencies (connectors with arrows on both ends) between:`);
+    bidirectionalRelationships.forEach(pairKey => {
+      const [id1, id2] = pairKey.split('-');
+      errors.push(`${id1} and ${id2}`);
     });
     errors.push('Please fix these bidirectional relationships by using a single arrow to show the primary dependency direction.');
     return { warnings, errors };
@@ -314,10 +319,11 @@ export async function parseFrameToC4Context(frame: miro.Frame): Promise<ParseRes
   const { bidirectionalRelationships } = await processConnectors(connectors, shapeMap);
 
   // If there are any bidirectional relationships, add them as errors and return without model
-  if (bidirectionalRelationships.length > 0) {
-    errors.push(`Detected ${bidirectionalRelationships.length} bidirectional dependencies (connectors with arrows on both ends) between:`);
-    bidirectionalRelationships.forEach(rel => {
-      errors.push(`${rel.source} and ${rel.target}`);
+  if (bidirectionalRelationships.size > 0) {
+    errors.push(`Detected ${bidirectionalRelationships.size} bidirectional dependencies (connectors with arrows on both ends) between:`);
+    bidirectionalRelationships.forEach(pairKey => {
+      const [id1, id2] = pairKey.split('-');
+      errors.push(`${id1} and ${id2}`);
     });
     errors.push('Please fix these bidirectional relationships by using a single arrow to show the primary dependency direction.');
     return { model: undefined, errors, warnings };
@@ -392,16 +398,18 @@ export async function parseFrameToC4Context(frame: miro.Frame): Promise<ParseRes
     title: frame.title || 'Context Diagram',
     people,
     systems: [
-      ...coreSystems.map(s => ({
+      ...coreSystems.map((s, index) => ({
         name: s.name,
+        number: index + 1,
         type: 'Core' as const,
-        ...(s.description ? { description: s.description } : {}),
+        ...(s.description && s.description.trim() ? { description: s.description.trim() } : {}),
         dependencies: s.dependencies
       })),
-      ...sortedSupportingSystems.map(s => ({
+      ...sortedSupportingSystems.map((s, index) => ({
         name: s.name,
+        number: coreSystems.length + index + 1,
         type: 'External' as const,
-        ...(s.description ? { description: s.description } : {}),
+        ...(s.description && s.description.trim() ? { description: s.description.trim() } : {}),
         dependencies: s.dependencies
       }))
     ],

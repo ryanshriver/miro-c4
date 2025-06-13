@@ -31,6 +31,15 @@ import { cleanContent, parseHtmlContent, isInLegendArea, ParseResult, processCon
 import { isPerson } from './c4ContextParser';
 import { C4Integration } from '../types/c4Context';
 
+interface ShapeStyle {
+  fillColor: string;
+  fontFamily?: string;
+  fontSize?: number;
+  textAlign?: string;
+  textAlignVertical?: string;
+  borderStyle?: 'solid' | 'dashed' | 'dotted';
+}
+
 /**
  * Intermediate data structures for container processing
  */
@@ -43,6 +52,41 @@ interface ContainerProcessingState {
   processedStencils: Set<string>;
 }
 
+interface ProcessedPerson {
+  name: string;
+}
+
+interface ProcessedContainer {
+  name: string;
+  number: number;
+  type: 'Container' | 'Web App' | 'Database' | 'Mobile App';
+  description?: string;
+  dependencies: {
+    in: number;
+    out: number;
+  };
+}
+
+interface ProcessedExternalSystem {
+  name: string;
+  number: number;
+  type: 'External';
+  description?: string;
+  dependencies: {
+    in: number;
+    out: number;
+  };
+}
+
+interface ProcessedModel {
+  people: ProcessedPerson[];
+  containers: ProcessedContainer[];
+  systems: ProcessedExternalSystem[];
+  integrations: C4Integration[];
+}
+
+type C4ContainerType = 'Database' | 'Web App' | 'Mobile App' | 'Container';
+
 /**
  * Gets all items belonging to the frame
  * @param frame - Miro frame to extract items from
@@ -51,64 +95,6 @@ interface ContainerProcessingState {
 async function getFrameItems(frame: miro.Frame): Promise<miro.BoardItem[]> {
   const allItems = await miro.board.get();
   return allItems.filter(item => frame.childrenIds.includes(item.id));
-}
-
-/**
- * Processes a stencil item and converts it to a shape-like object.
- * Stencils are handled specially as they may represent web browser containers.
- * 
- * @param item - Miro stencil item to process
- * @param state - Processing state containing collections and tracking data
- * @returns Promise resolving to processed shape or null if already processed
- */
-async function processStencilShape(item: miro.BoardItem, state: ContainerProcessingState): Promise<miro.Shape | null> {
-  // Skip if already processed
-  if (state.processedStencils.has(item.id)) {
-    return null;
-  }
-  state.processedStencils.add(item.id);
-  
-  console.log('Processing stencil:', item);
-  
-  // Try to get stencil content using Miro SDK
-  let stencilContent = '';
-  
-  try {
-    // Log the full stencil object for debugging
-    console.log('Full stencil object:', JSON.stringify(item, null, 2));
-    
-    // Try to get stencil data from the SDK
-    const stencilData = await miro.board.getById(item.id);
-    console.log('Stencil data from SDK:', JSON.stringify(stencilData, null, 2));
-    
-    if (stencilData) {
-      stencilContent = `<p><strong>Web App</strong></p>`;
-    }
-  } catch (error) {
-    console.error('Error getting stencil data:', error);
-    stencilContent = `<p><strong>Web App</strong></p>`;
-  }
-  
-  console.log('Extracted stencil content:', {
-    content: stencilContent
-  });
-  
-  // Create a shape-like object for the stencil
-  return {
-    id: item.id,
-    type: item.type,
-    shape: 'round_rectangle',
-    content: stencilContent,
-    style: {
-      fillColor: C4ContainerColors.WEB_BROWSER,
-      fontFamily: 'open_sans',
-      fontSize: 24,
-      textAlign: 'center',
-      textAlignVertical: 'middle'
-    },
-    x: item.x,
-    y: item.y
-  } as miro.Shape;
 }
 
 /**
@@ -121,17 +107,7 @@ async function processStencilShape(item: miro.BoardItem, state: ContainerProcess
  */
 async function collectShapesForProcessing(items: miro.BoardItem[], frame: miro.Frame, state: ContainerProcessingState): Promise<void> {
   for (const item of items) {
-    if (item.type === 'shape' || item.type === 'stencil') {
-      // Handle stencils specially
-      if (item.type === 'stencil') {
-        const shape = await processStencilShape(item, state);
-        if (shape) {
-          state.shapeMap.set(shape.id, shape);
-        }
-        continue;
-      }
-      
-      // Handle regular shapes
+    if (item.type === 'shape') {
       const shape = item as miro.Shape;
       
       // Skip shapes in legend area
@@ -142,7 +118,7 @@ async function collectShapesForProcessing(items: miro.BoardItem[], frame: miro.F
       
       // Skip shapes that don't have required properties
       if (!shape.style?.fillColor || !shape.shape) {
-        console.log('Skipping shape/stencil due to missing properties:', {
+        console.log('Skipping shape due to missing properties:', {
           id: shape.id,
           type: item.type,
           shape: shape.shape,
@@ -158,59 +134,120 @@ async function collectShapesForProcessing(items: miro.BoardItem[], frame: miro.F
 }
 
 /**
- * Determines container type based on shape and name content.
+ * Determines container type based on shape and content.
  * 
  * @param shape - Shape to classify
- * @param name - Parsed name of the container
+ * @param content - Parsed content of the container
  * @returns Container type string
  */
-function determineContainerType(shape: miro.Shape, name: string): string {
-  const nameLower = name.toLowerCase();
-  
+function determineContainerType(shape: miro.Shape, content: string): C4ContainerType {
+  // First check shape type
   if (shape.shape === 'can') {
     return 'Database';
-  } else if (nameLower.includes('web')) {
-    return 'Web App';
-  } else if (nameLower.includes('mobile')) {
-    return 'Mobile App';
-  } else {
-    return 'Container';
   }
+
+  // Then check content for specific types
+  const lowerContent = content.toLowerCase();
+  
+  // Check for web app (rectangle shape with "web" in title)
+  if (shape.shape === 'rectangle' && (lowerContent.includes('web app') || lowerContent.includes('webapp') || lowerContent.includes('web'))) {
+    return 'Web App';
+  }
+  
+  // Check for mobile app (rectangle shape with "mobile" in title)
+  if (shape.shape === 'rectangle' && (lowerContent.includes('mobile app') || lowerContent.includes('mobileapp') || lowerContent.includes('mobile'))) {
+    return 'Mobile App';
+  }
+  
+  // Check for database (case insensitive)
+  if (lowerContent.includes('db') || lowerContent.includes('database')) {
+    return 'Database';
+  }
+
+  // Default to Container for everything else
+  return 'Container';
 }
 
 /**
- * Processes a single shape into the appropriate model element.
- * Handles person detection, container classification, and external system identification.
+ * Processes a single shape into the appropriate element type based on its properties.
  * 
- * @param shape - Shape to process
+ * @param shape - Miro shape to process
  * @param items - All board items for person detection
- * @param model - C4 container model to update
- * @param errors - Array to store errors encountered during processing
- * @param frame - Miro frame for legend area detection
+ * @param model - Model to add processed elements to
+ * @param errors - Array to collect errors
+ * @param frame - Parent frame for legend area detection
  */
 async function processShapeIntoModel(
   shape: miro.Shape,
   items: miro.BoardItem[],
-  model: C4ContainerModel,
+  model: ProcessedModel,
   errors: string[],
   frame: miro.Frame
 ): Promise<void> {
-  // Skip shapes without required properties
-  if (!shape.content || !shape.style?.fillColor || !shape.shape) {
-    return;
-  }
+  // Skip shapes in the legend area
+  if (isInLegendArea(shape, frame)) return;
 
-  // Skip shapes in legend area
-  if (isInLegendArea(shape, frame)) {
-    return;
-  }
+  // Validate shape has required properties
+  if (!shape.style?.fillColor || !shape.shape) return;
 
+  // Parse content
   const { title, description } = parseHtmlContent(shape.content);
   const name = title || cleanContent(shape.content);
 
-  // Skip if no name
-  if (!name) {
-    errors.push(`Shape at (${shape.x}, ${shape.y}) has no name`);
+  // Skip shapes with empty names
+  if (!name || name.trim() === '') {
+    console.log('Skipping shape with empty name:', shape.id);
+    return;
+  }
+
+  // Check for supporting system (rectangle shape)
+  if (shape.shape === 'rectangle') {
+    // Check if this is a web or mobile app first
+    const type = determineContainerType(shape, shape.content);
+    if (type === 'Web App' || type === 'Mobile App') {
+      // Clean up the name by removing zero-width spaces and other special characters
+      const cleanName = name.replace(/[\uFEFF\u200B]/g, '').trim();
+      console.log('Found web/mobile app:', {
+        name: cleanName,
+        type,
+        description
+      });
+      const container: ProcessedContainer = {
+        name: cleanName,
+        number: 0,
+        type,
+        dependencies: {
+          in: 0,
+          out: 0
+        }
+      };
+      // Only add description if it exists and is not empty
+      if (description && description.trim()) {
+        container.description = description.trim();
+      }
+      model.containers.push(container);
+      return;
+    }
+
+    // Otherwise treat as supporting system
+    console.log('Found supporting system:', {
+      name,
+      description
+    });
+    const system: ProcessedExternalSystem = {
+      name,
+      number: 0,
+      type: 'External',
+      dependencies: {
+        in: 0,
+        out: 0
+      }
+    };
+    // Only add description if it exists and is not empty
+    if (description && description.trim()) {
+      system.description = description.trim();
+    }
+    model.systems.push(system);
     return;
   }
 
@@ -225,78 +262,69 @@ async function processShapeIntoModel(
   }
 
   // Check for external system
-  if (shape.style.fillColor === C4ContainerColors.EXTERNAL_SYSTEM && shape.shape === 'round_rectangle') {
+  if (shape.style.fillColor === C4ContainerColors.EXTERNAL_SYSTEM) {
     console.log('Found external system:', {
       name,
       description
     });
-    model.systems.push({
+    const system: ProcessedExternalSystem = {
       name,
-      description,
+      number: 0,
+      type: 'External',
       dependencies: {
         in: 0,
         out: 0
       }
-    });
+    };
+    // Only add description if it exists and is not empty
+    if (description && description.trim()) {
+      system.description = description.trim();
+    }
+    model.systems.push(system);
     return;
   }
 
-  // Check for container
-  if (shape.style.fillColor === C4ContainerColors.CONTAINER && shape.shape === 'round_rectangle') {
+  // Check for container types
+  if (shape.style.fillColor === C4ContainerColors.CONTAINER || 
+      shape.style.fillColor === C4ContainerColors.WEB_BROWSER || 
+      shape.shape === 'can') {
+    // First determine the type based on shape and content
+    const type = determineContainerType(shape, shape.content);
+    
+    // Then create a unique name for the container
+    let containerName = name;
+
+    // Check if this container already exists
+    const existingContainer = model.containers.find(c => c.name === containerName);
+    if (existingContainer) {
+      console.log('Skipping duplicate container:', containerName);
+      return;
+    }
+
     console.log('Found container:', {
-      name,
+      name: containerName,
+      type,
       description
     });
-    model.containers.push({
-      name,
-      type: 'Container',
-      description,
+
+    const container: ProcessedContainer = {
+      name: containerName,
+      number: 0,
+      type,
       dependencies: {
         in: 0,
         out: 0
       }
-    });
+    };
+
+    // Only add description if it exists and is not empty
+    if (description && description.trim()) {
+      container.description = description.trim();
+    }
+
+    model.containers.push(container);
     return;
   }
-
-  // Check for web app
-  if (shape.style.fillColor === C4ContainerColors.WEB_BROWSER && shape.shape === 'round_rectangle') {
-    console.log('Found web app:', {
-      name,
-      description
-    });
-    model.containers.push({
-      name,
-      type: 'Web App',
-      description,
-      dependencies: {
-        in: 0,
-        out: 0
-      }
-    });
-    return;
-  }
-
-  // Check for database
-  if (shape.shape === 'can') {
-    console.log('Found database:', {
-      name,
-      description
-    });
-    model.containers.push({
-      name,
-      type: 'Database',
-      description,
-      dependencies: {
-        in: 0,
-        out: 0
-      }
-    });
-    return;
-  }
-
-  // If we get here, the shape wasn't recognized
-  errors.push(`Unrecognized shape at (${shape.x}, ${shape.y}): ${name}`);
 }
 
 /**
@@ -321,18 +349,19 @@ async function processAllShapesIntoModel(
  * Bidirectional relationships are considered errors in C4 diagrams.
  * 
  * @param state - Processing state containing model, warnings, and errors
- * @param bidirectionalRelationships - Array of detected bidirectional relationships
+ * @param bidirectionalRelationships - Set of detected bidirectional relationships
  * @returns Parse result with model (if valid) or errors
  */
 function validateAndReturnContainerResult(
   state: ContainerProcessingState,
-  bidirectionalRelationships: { source: string; target: string }[]
+  bidirectionalRelationships: Set<string>
 ): ParseResult<C4ContainerModel> {
   // If there are any bidirectional relationships, add them as errors and return without model
-  if (bidirectionalRelationships.length > 0) {
-    state.errors.push(`Detected ${bidirectionalRelationships.length} bidirectional dependencies (connectors with arrows on both ends) between:`);
-    bidirectionalRelationships.forEach(rel => {
-      state.errors.push(`${rel.source} and ${rel.target}`);
+  if (bidirectionalRelationships.size > 0) {
+    state.errors.push(`Detected ${bidirectionalRelationships.size} bidirectional dependencies (connectors with arrows on both ends) between:`);
+    bidirectionalRelationships.forEach(pairKey => {
+      const [id1, id2] = pairKey.split('-');
+      state.errors.push(`${id1} and ${id2}`);
     });
     state.errors.push('Please fix these bidirectional relationships by using a single arrow to show the primary dependency direction.');
     return { warnings: state.warnings, errors: state.errors };
@@ -343,34 +372,10 @@ function validateAndReturnContainerResult(
 
 /**
  * Main function to parse a Miro frame into a C4 container model.
+ * Processes all elements in the frame and organizes them into a structured C4 model.
  * 
- * This function orchestrates the complete parsing workflow:
- * 1. Extracts all items from the specified frame
- * 2. Processes shapes and stencils into categorized elements
- * 3. Analyzes connectors for relationship mapping
- * 4. Validates diagram integrity and returns structured model
- * 
- * The parser uses a two-pass approach:
- * - First pass: Collect and validate all shapes, build shape map
- * - Second pass: Process shapes into final model elements with relationships
- * 
- * Person Detection:
- * Uses proximity-based detection by finding round_rectangle shapes that have
- * circle shapes within a 100x150 pixel threshold, simulating Miro's person icons.
- * 
- * Container Classification:
- * - Shape-based: Cylindrical shapes → Database containers
- * - Keyword-based: Names containing "web" → Web App, "mobile" → Mobile App
- * - Default: Other containers → Generic Container type
- * 
- * Error Handling:
- * - Bidirectional relationships result in parsing errors (not warnings)
- * - Missing properties or invalid shapes are gracefully skipped
- * - Duplicate names are prevented using Set-based deduplication
- * 
- * @param frame - Miro frame containing the C4 container diagram elements
- * @returns Promise resolving to ParseResult containing the C4 container model,
- *          warnings for non-critical issues, and errors for diagram violations
+ * @param frame - Miro frame containing the C4 diagram
+ * @returns Object containing the C4 container model and any warnings
  */
 export async function parseFrameToC4Container(frame: miro.Frame): Promise<ParseResult<C4ContainerModel>> {
   const errors: string[] = [];
@@ -379,59 +384,213 @@ export async function parseFrameToC4Container(frame: miro.Frame): Promise<ParseR
   // Get all items in the frame
   const allItems = await miro.board.get();
   const items = allItems.filter(item => frame.childrenIds.includes(item.id));
-
-  // First pass: collect shapes and connectors
-  const state: ContainerProcessingState = {
-    model: {
-      level: 'Container',
-      title: frame.title || 'Container Diagram',
-      people: [],
-      containers: [],
-      systems: [],
-      integrations: []
-    },
-    shapeMap: new Map(),
-    containerNames: new Set(),
-    errors: [],
-    warnings: [],
-    processedStencils: new Set()
-  };
-
-  // Process shapes and connectors
-  for (const item of items) {
-    if (item.type === 'shape' || item.type === 'stencil') {
-      state.shapeMap.set(item.id, item as miro.Shape);
-    }
+  
+  if (!items || items.length === 0) {
+    return { 
+      model: {
+        level: 'Container',
+        title: frame.title || 'Container Diagram',
+        people: [],
+        containers: [],
+        systems: [],
+        integrations: []
+      }, 
+      errors: [], 
+      warnings: [] 
+    };
   }
 
-  // Process connectors to get dependency counts
-  const connectors = items.filter((item): item is miro.Connector => item.type === 'connector');
-  const { integrations, incomingCount, outgoingCount, bidirectionalRelationships } = await processConnectors(connectors, state.shapeMap);
+  // Separate shapes and connectors with proper type filtering
+  const shapes = items.filter((item): item is miro.Shape => 
+    item.type === 'shape' && 
+    'shape' in item && 
+    'style' in item
+  );
+  const connectors = items.filter((item): item is miro.Connector => 
+    item.type === 'connector' && 
+    'start' in item && 
+    'end' in item
+  );
 
-  // Second pass: process shapes into model elements
-  await processAllShapesIntoModel(items, state, frame);
+  // Create a map of shapes for quick lookup
+  const shapeMap = new Map(shapes.map(shape => [shape.id, shape]));
 
-  // Add integrations to model
-  state.model.integrations = integrations;
+  // Process connectors first to get dependency counts and check for bidirectional relationships
+  const { bidirectionalRelationships } = await processConnectors(connectors, shapeMap);
 
-  // Update dependency counts
-  state.model.containers.forEach(container => {
+  // If there are any bidirectional relationships, add them as errors and return without model
+  if (bidirectionalRelationships.size > 0) {
+    errors.push(`Detected ${bidirectionalRelationships.size} bidirectional dependencies (connectors with arrows on both ends) between:`);
+    bidirectionalRelationships.forEach(pairKey => {
+      const [id1, id2] = pairKey.split('-');
+      errors.push(`${id1} and ${id2}`);
+    });
+    errors.push('Please fix these bidirectional relationships by using a single arrow to show the primary dependency direction.');
+    return { model: undefined, errors, warnings };
+  }
+
+  // Process connectors again to get the full integration data
+  const { integrations, incomingCount, outgoingCount } = await processConnectors(connectors, shapeMap);
+
+  // Process all shapes
+  const people: ProcessedPerson[] = [];
+  const containers: ProcessedContainer[] = [];
+  const systems: ProcessedExternalSystem[] = [];
+  let containerNumber = 1;  // Counter for container numbers
+  let systemNumber = 1;     // Counter for system numbers
+  let integrationNumber = 1; // Counter for integration numbers
+
+  // Process shapes in parallel for better performance
+  await Promise.all(shapes.map(async shape => {
+    await processShapeIntoModel(shape, items, { people, containers, systems, integrations }, errors, frame);
+  }));
+
+  // Update dependency counts in containers and systems
+  for (const container of containers) {
+    // Clean the container name to match the format used in integrations
+    const cleanContainerName = container.name.replace(/[\uFEFF\u200B]/g, '').trim();
     container.dependencies = {
-      in: incomingCount.get(container.name) || 0,
-      out: outgoingCount.get(container.name) || 0
+      in: incomingCount.get(cleanContainerName) || 0,
+      out: outgoingCount.get(cleanContainerName) || 0
     };
-  });
-
-  state.model.systems.forEach(system => {
+  }
+  for (const system of systems) {
+    // Clean the system name to match the format used in integrations
+    const cleanSystemName = system.name.replace(/[\uFEFF\u200B]/g, '').trim();
     system.dependencies = {
-      in: incomingCount.get(system.name) || 0,
-      out: outgoingCount.get(system.name) || 0
+      in: incomingCount.get(cleanSystemName) || 0,
+      out: outgoingCount.get(cleanSystemName) || 0
     };
+  }
+
+  // Sort people by x position (left to right)
+  people.sort((a, b) => {
+    const shapeA = shapes.find(s => cleanContent(s.content) === a.name);
+    const shapeB = shapes.find(s => cleanContent(s.content) === b.name);
+    return (shapeA?.x || 0) - (shapeB?.x || 0);
   });
 
-  return {
-    model: state.model,
-    errors: state.errors,
-    warnings
+  // Sort containers by type in specified order: Web App, Mobile App, Container, Database
+  const typeOrder = {
+    'Web App': 0,
+    'Mobile App': 1,
+    'Container': 2,
+    'Database': 3
   };
+  containers.sort((a, b) => {
+    const typeOrderA = typeOrder[a.type];
+    const typeOrderB = typeOrder[b.type];
+    if (typeOrderA !== typeOrderB) {
+      return typeOrderA - typeOrderB;
+    }
+    // If same type, sort by name
+    return a.name.localeCompare(b.name);
+  });
+
+  // Assign numbers to containers after sorting
+  containers.forEach(container => {
+    container.number = containerNumber++;
+  });
+
+  // Sort supporting systems by x position (left to right)
+  systems.sort((a, b) => {
+    const shapeA = shapes.find(s => cleanContent(s.content) === a.name);
+    const shapeB = shapes.find(s => cleanContent(s.content) === b.name);
+    return (shapeA?.x || 0) - (shapeB?.x || 0);
+  });
+
+  // Assign numbers to systems after sorting
+  systems.forEach(system => {
+    system.number = systemNumber++;
+  });
+
+  // Create the model
+  const model: C4ContainerModel = {
+    level: 'Container',
+    title: frame.title || 'Container Diagram',
+    people,
+    containers,
+    systems: systems.map(system => ({
+      name: system.name,
+      number: system.number,
+      description: system.description?.trim(),
+      type: 'External',
+      dependencies: system.dependencies
+    })),
+    integrations: integrations.map(integration => ({
+      number: integrationNumber++,
+      source: integration.source,
+      'depends-on': integration['depends-on'],
+      ...(integration.description ? { description: integration.description.trim() } : {})
+    }))
+  };
+
+  return { model, errors, warnings };
+}
+
+async function processStencil(stencil: miro.Stencil, frame: miro.Frame, state: ContainerProcessingState): Promise<void> {
+  console.log('Processing stencil:', stencil);
+  console.log('Full stencil object:', JSON.stringify(stencil, null, 2));
+
+  // Get the full stencil data from the SDK
+  const stencilData = await miro.board.getById(stencil.id) as unknown as miro.Stencil;
+  console.log('Stencil data from SDK:', JSON.stringify(stencilData, null, 2));
+
+  // Extract the content from the stencil
+  const content = stencilData.content || '';
+  console.log('Raw stencil content:', content);
+
+  // Skip if no content
+  if (!content) {
+    console.log('Empty stencil content');
+    return;
+  }
+
+  // Parse the content to get title and description
+  const { title, description } = parseHtmlContent(content);
+  console.log('Parsed stencil content:', { title, description });
+
+  // Skip if no title
+  if (!title) {
+    console.log('No title found in stencil');
+    return;
+  }
+
+  // Add to processed stencils
+  state.processedStencils.add(stencil.id);
+
+  // Process the stencil based on its type
+  if (stencilData.shape === 'round_rectangle') {
+    // Check if this is a web app stencil
+    const type = determineContainerType(stencilData, title);
+    const name = title || cleanContent(content);
+    
+    if (type === 'Web App') {
+      // Add web apps as systems
+      console.log('Found web app system:', { name, description });
+      state.model.systems.push({
+        name,
+        number: 0,
+        type: 'External',
+        description: description || '',
+        dependencies: {
+          in: 0,
+          out: 0
+        }
+      });
+    } else {
+      // Add other containers as containers
+      console.log('Found container:', { name, type, description });
+      state.model.containers.push({
+        name,
+        number: 0,
+        type,
+        description: description || '',
+        dependencies: {
+          in: 0,
+          out: 0
+        }
+      });
+    }
+  }
 } 

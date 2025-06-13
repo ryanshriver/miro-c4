@@ -44,6 +44,7 @@ declare namespace miro {
       fontSize?: number;
       textAlign?: string;
       textAlignVertical?: string;
+      borderStyle?: 'solid' | 'dashed' | 'dotted';  // Border style of the shape
     };
   }
 

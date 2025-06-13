@@ -193,11 +193,8 @@ describe('c4Utils', () => {
         ['supporting-system-1', mockSupportingSystemShape]
       ]);
       const result = await processConnectors([bidirectionalConnector], shapeMap);
-      expect(result.bidirectionalRelationships).toHaveLength(1);
-      expect(result.bidirectionalRelationships[0]).toEqual({
-        source: 'Talent Systems',
-        target: 'Email System'
-      });
+      expect(result.bidirectionalRelationships.size).toBe(1);
+      expect(result.bidirectionalRelationships.has('Talent Systems-Email System')).toBe(true);
     });
   });
 

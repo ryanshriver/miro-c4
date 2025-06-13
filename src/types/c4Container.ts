@@ -2,6 +2,8 @@
  * Type definitions for C4 Container diagrams (Level 2)
  */
 
+import { C4Integration } from './c4Context';
+
 /**
  * Represents a complete C4 container model.
  */
@@ -11,7 +13,7 @@ export interface C4ContainerModel {
   people: C4Person[];
   containers: C4Container[];
   systems: C4ExternalSystem[];
-  integrations: C4Relationship[];
+  integrations: C4Integration[];
 }
 
 /**
@@ -26,8 +28,9 @@ export interface C4Person {
  */
 export interface C4Container {
   name: string;
+  number: number;
   type: 'Container' | 'Web App' | 'Database' | 'Mobile App';
-  description: string;
+  description?: string;
   dependencies: {
     in: number;
     out: number;
@@ -39,7 +42,9 @@ export interface C4Container {
  */
 export interface C4ExternalSystem {
   name: string;
-  description: string;
+  number: number;
+  description?: string;
+  type: 'External';
   dependencies: {
     in: number;
     out: number;

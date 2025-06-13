@@ -29,41 +29,46 @@ export function cleanContent(content: string): string {
  * - Description is in regular <span> tags
  */
 export function parseHtmlContent(content: string): { title: string; description: string } {
-  // First try to extract content from <strong> tags, including those with style attributes
-  const strongRegex = /<strong[^>]*>(.*?)<\/strong>/;
-  const strongMatch = content.match(strongRegex);
-  const strongContent = strongMatch ? strongMatch[1].replace(/<br\s*\/?>/g, '') : '';
-  const title = strongContent ? cleanContent(strongContent) : '';
+  console.log('Parsing HTML content:', content);
+  
+  // Extract content from strong tags, including those with style attributes
+  const strongRegex = /<strong[^>]*>(.*?)<\/strong>/g;
+  const strongMatches = content.match(strongRegex);
+  let title = '';
+  
+  if (strongMatches && strongMatches.length > 0) {
+    // Get the first strong tag content
+    const firstStrong = strongMatches[0];
+    title = firstStrong.replace(/<[^>]+>/g, '').trim();
+    console.log('Found title in strong tag:', title);
+  } else {
+    // If no strong tags, try to get the first line
+    const lines = content.split(/<br\s*\/?>/).map(line => line.replace(/<[^>]+>/g, '').trim());
+    console.log('Split lines:', lines);
+    title = lines[0] || '';
+  }
 
-  // Remove all HTML tags except spans, then extract span content
-  let remainingContent = content
-    .replace(strongRegex, '')  // Remove strong tag and its content
-    .replace(/<br\s*\/?>/g, '\n')  // Convert <br> to newlines
-    .replace(/<\/?p>/g, '\n')      // Convert <p> tags to newlines
+  // Get description from remaining content
+  let description = content
+    .replace(/<strong[^>]*>.*?<\/strong>/g, '') // Remove strong tags
+    .replace(/<[^>]+>/g, '') // Remove other HTML tags
+    .replace(/&amp;/g, '&') // Decode HTML entities
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
     .trim();
 
-  // Extract text from spans and remove the span tags
-  remainingContent = remainingContent.replace(/<span[^>]*>(.*?)<\/span>/g, '$1').trim();
+  // If description is empty and we have multiple lines, use the second line
+  if (!description && content.includes('<br')) {
+    const lines = content.split(/<br\s*\/?>/).map(line => line.replace(/<[^>]+>/g, '').trim());
+    if (lines.length > 1) {
+      description = lines[1];
+    }
+  }
 
-  // Clean and split the remaining content
-  const cleanedLines = remainingContent
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0)
-    .map(line => cleanContent(line));  // Clean each line
-  
-  // If no title was found in <strong> tags, use first line as title
-  const finalTitle = title || cleanedLines[0] || '';
-  
-  // For description, use only the cleaned lines that don't match the title
-  const description = cleanedLines
-    .filter(line => line !== title)  // Remove any line that exactly matches the title
-    .join('\n');
-
-  return {
-    title: finalTitle,
-    description: description
-  };
+  console.log('Final parsed result:', { title, description });
+  return { title, description };
 }
 
 /**
@@ -219,76 +224,66 @@ function stripHtmlTags(html: string): string {
  * Processes connectors to create integrations and count dependencies.
  * Used by both Context and Container parsers to ensure consistent handling.
  */
-export async function processConnectors(connectors: miro.Connector[], shapeMap: Map<string, miro.Shape>) {
-  const integrations: any[] = [];
+export async function processConnectors(
+  connectors: miro.Connector[],
+  shapeMap: Map<string, miro.Shape>
+): Promise<{
+  integrations: C4Integration[];
+  incomingCount: Map<string, number>;
+  outgoingCount: Map<string, number>;
+  bidirectionalRelationships: Set<string>;
+}> {
+  const integrations: C4Integration[] = [];
   const incomingCount = new Map<string, number>();
   const outgoingCount = new Map<string, number>();
-  const bidirectionalRelationships: { source: string; target: string }[] = [];
+  const bidirectionalRelationships = new Set<string>();
+  const processedPairs = new Set<string>();
+  let integrationNumber = 1;
 
-  // First pass: check for bidirectional relationships
+  // Helper to get shape name
+  const getShapeName = (shapeId: string): string => {
+    const shape = shapeMap.get(shapeId);
+    if (!shape) return '';
+    const { title } = parseHtmlContent(shape.content);
+    const name = Array.isArray(title) ? title[0] : title;
+    // Clean the name by removing zero-width spaces and trimming
+    return name.replace(/[\uFEFF\u200B]/g, '').trim();
+  };
+
+  // Helper to create a unique key for a pair of shapes
+  const getPairKey = (id1: string, id2: string): string => {
+    return [id1, id2].sort().join('-');
+  };
+
   for (const connector of connectors) {
-    const sourceShape = shapeMap.get(connector.start?.item as string);
-    const targetShape = shapeMap.get(connector.end?.item as string);
-    if (!sourceShape || !targetShape) continue;
+    const startShape = shapeMap.get(connector.start.item);
+    const endShape = shapeMap.get(connector.end.item);
+    
+    if (!startShape || !endShape) continue;
 
-    // Check for bidirectional relationship
-    const hasStartArrow = connector.style?.startStrokeCap === 'arrow' || 
-                         connector.style?.startStrokeCap === 'rounded_stealth';
-    const hasEndArrow = connector.style?.endStrokeCap === 'arrow' || 
-                       connector.style?.endStrokeCap === 'rounded_stealth';
+    const startName = getShapeName(connector.start.item);
+    const endName = getShapeName(connector.end.item);
+    
+    if (!startName || !endName) continue;
 
-    if (hasStartArrow && hasEndArrow) {
-      const sourceTitle = (parseHtmlContent(sourceShape.content)).title || cleanContent(sourceShape.content);
-      const targetTitle = (parseHtmlContent(targetShape.content)).title || cleanContent(targetShape.content);
-      if (sourceTitle && targetTitle) {
-        bidirectionalRelationships.push({
-          source: sourceTitle,
-          target: targetTitle
-        });
-      }
+    // Update dependency counts
+    outgoingCount.set(startName, (outgoingCount.get(startName) || 0) + 1);
+    incomingCount.set(endName, (incomingCount.get(endName) || 0) + 1);
+
+    // Check for bidirectional relationships
+    const pairKey = getPairKey(connector.start.item, connector.end.item);
+    if (processedPairs.has(pairKey)) {
+      bidirectionalRelationships.add(pairKey);
     }
-  }
+    processedPairs.add(pairKey);
 
-  // If we found any bidirectional relationships, return early
-  if (bidirectionalRelationships.length > 0) {
-    return { integrations: [], incomingCount, outgoingCount, bidirectionalRelationships };
-  }
-
-  // Second pass: process valid connectors
-  for (const connector of connectors) {
-    const sourceShape = shapeMap.get(connector.start?.item as string);
-    const targetShape = shapeMap.get(connector.end?.item as string);
-    if (!sourceShape || !targetShape) continue;
-
-    const hasStartArrow = connector.style?.startStrokeCap === 'arrow' || 
-                         connector.style?.startStrokeCap === 'rounded_stealth';
-    const hasEndArrow = connector.style?.endStrokeCap === 'arrow' || 
-                       connector.style?.endStrokeCap === 'rounded_stealth';
-
-    const sourceTitle = (parseHtmlContent(sourceShape.content)).title || cleanContent(sourceShape.content);
-    const targetTitle = (parseHtmlContent(targetShape.content)).title || cleanContent(targetShape.content);
-
-    if (!sourceTitle || !targetTitle) continue;
-
-    // Create integration with cleaned descriptions
+    // Add integration
     integrations.push({
-      number: integrations.length + 1,
-      source: sourceTitle,
-      'depends-on': targetTitle,
-      description: (connector.captions && connector.captions.length > 0)
-        ? connector.captions.map(c => c.content ? stripHtmlTags(c.content) : '')
-        : []
+      number: integrationNumber++,
+      source: startName,
+      'depends-on': endName,
+      ...(connector.content ? { description: connector.content } : {})
     });
-
-    // Count dependencies based on arrow direction
-    if (hasEndArrow) {
-      outgoingCount.set(sourceTitle, (outgoingCount.get(sourceTitle) || 0) + 1);
-      incomingCount.set(targetTitle, (incomingCount.get(targetTitle) || 0) + 1);
-    }
-    else if (hasStartArrow) {
-      outgoingCount.set(targetTitle, (outgoingCount.get(targetTitle) || 0) + 1);
-      incomingCount.set(sourceTitle, (incomingCount.get(sourceTitle) || 0) + 1);
-    }
   }
 
   return { integrations, incomingCount, outgoingCount, bidirectionalRelationships };
