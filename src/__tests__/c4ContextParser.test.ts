@@ -45,6 +45,11 @@ describe('parseFrameToC4Context', () => {
       // Check systems
       expect(result.model.systems).toHaveLength(1);
       expect(result.model.systems[0].name).toBe('Talent Systems');
+      expect(result.model.systems[0].type).toBe('Core');
+      expect(result.model.systems[0].dependencies).toEqual({
+        in: 0,
+        out: 0
+      });
     }
   });
 
