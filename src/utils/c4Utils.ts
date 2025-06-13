@@ -195,106 +195,127 @@ export async function detectC4DiagramType(frame: miro.Frame): Promise<'context' 
 }
 
 /**
- * Process connectors to extract integrations and dependency counts.
+ * Determines if a shape represents a person based on proximity to circles.
  * Used by both Context and Container parsers to ensure consistent handling.
  */
-export function processConnectors(
-  connectors: miro.Connector[],
-  shapeMap: Map<string, miro.Shape>
-): {
-  integrations: C4Integration[];
-  incomingCount: Map<string, number>;
-  outgoingCount: Map<string, number>;
-  bidirectionalRelationships: { source: string; target: string }[];
-} {
+export async function isPerson(shape: miro.Shape, items: miro.BoardItem[]): Promise<boolean> {
+  // Early return if not a round rectangle
+  if (shape.shape !== 'round_rectangle') return false;
+
+  // Early return if no items to check
+  if (!items.length) return false;
+
+  // Find the closest circle within threshold
+  const thresholdX = 100;
+  const thresholdY = 150;
+  
+  // Filter for circles first to reduce iterations
+  const circles = items.filter((item): item is miro.Shape => 
+    item.type === 'shape' && 
+    'shape' in item && 
+    item.shape === 'circle'
+  );
+  if (!circles.length) return false;
+
+  // Check if any circle is within threshold
+  return circles.some(circle => 
+    Math.abs(circle.x - shape.x) < thresholdX && 
+    Math.abs(circle.y - shape.y) < thresholdY
+  );
+}
+
+/**
+ * Strips HTML tags from a string, preserving the text content.
+ * Also handles common HTML entities and ensures proper spacing between words.
+ */
+function stripHtmlTags(html: string): string {
+  // First decode common HTML entities
+  const decoded = html
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+
+  // Then strip HTML tags and ensure proper spacing
+  return decoded
+    .replace(/<[^>]*>/g, ' ')  // Replace tags with a space
+    .replace(/\s+/g, ' ')      // Replace multiple spaces with a single space
+    .trim();                   // Remove leading/trailing spaces
+}
+
+/**
+ * Processes connectors to create integrations and count dependencies.
+ * Used by both Context and Container parsers to ensure consistent handling.
+ */
+export async function processConnectors(connectors: miro.Connector[], shapeMap: Map<string, miro.Shape>) {
+  const integrations: any[] = [];
   const incomingCount = new Map<string, number>();
   const outgoingCount = new Map<string, number>();
-  const integrations: C4Integration[] = [];
   const bidirectionalRelationships: { source: string; target: string }[] = [];
-  let relationshipNumber = 1;
+
+  // Get all shapes once to avoid repeated lookups
+  const allShapes = Array.from(shapeMap.values());
 
   for (const connector of connectors) {
-    if (!connector.start?.item || !connector.end?.item) continue;
+    const sourceShape = shapeMap.get(connector.start?.item as string);
+    const targetShape = shapeMap.get(connector.end?.item as string);
+    if (!sourceShape || !targetShape) continue;
 
-    const startShape = shapeMap.get(connector.start.item);
-    const endShape = shapeMap.get(connector.end.item);
-    
-    if (!startShape || !endShape) continue;
-
-    // Check if this connector has arrows on both ends
+    // Check for bidirectional relationship
     const hasStartArrow = connector.style?.startStrokeCap === 'arrow' || 
                          connector.style?.startStrokeCap === 'rounded_stealth';
     const hasEndArrow = connector.style?.endStrokeCap === 'arrow' || 
                        connector.style?.endStrokeCap === 'rounded_stealth';
-    
-    if (hasStartArrow && hasEndArrow) {
-      const { title: startTitle } = parseHtmlContent(startShape.content);
-      const { title: endTitle } = parseHtmlContent(endShape.content);
-      const startName = startTitle || cleanContent(startShape.content).split('\n')[0];
-      const endName = endTitle || cleanContent(endShape.content).split('\n')[0];
 
-      bidirectionalRelationships.push({
-        source: startName,
-        target: endName
-      });
+    if (hasStartArrow && hasEndArrow) {
+      const sourceTitle = (parseHtmlContent(sourceShape.content)).title || cleanContent(sourceShape.content);
+      const targetTitle = (parseHtmlContent(targetShape.content)).title || cleanContent(targetShape.content);
+      if (sourceTitle && targetTitle) {
+        bidirectionalRelationships.push({
+          source: sourceTitle,
+          target: targetTitle
+        });
+      }
       continue;
     }
 
-    // Get source and target names
-    const { title: sourceTitle } = parseHtmlContent(startShape.content);
-    const { title: targetTitle } = parseHtmlContent(endShape.content);
-    const sourceName = sourceTitle || cleanContent(startShape.content).split('\n')[0];
-    const targetName = targetTitle || cleanContent(endShape.content).split('\n')[0];
+    // Use async isPerson logic
+    const sourceIsPerson = await isPerson(sourceShape, allShapes);
+    const targetIsPerson = await isPerson(targetShape, allShapes);
 
-    // Handle special case for 'App' -> 'Talent Web App'
-    const actualSourceName = sourceName === 'App' ? 'Talent Web App' : 
-                           sourceName === 'Database' ? 'Talent DB' : sourceName;
-    const actualTargetName = targetName === 'App' ? 'Talent Web App' : 
-                           targetName === 'Database' ? 'Talent DB' : targetName;
+    const sourceTitle = (parseHtmlContent(sourceShape.content)).title || cleanContent(sourceShape.content);
+    const targetTitle = (parseHtmlContent(targetShape.content)).title || cleanContent(targetShape.content);
 
-    // Count dependencies
-    outgoingCount.set(actualSourceName, (outgoingCount.get(actualSourceName) || 0) + 1);
-    incomingCount.set(actualTargetName, (incomingCount.get(actualTargetName) || 0) + 1);
+    if (!sourceTitle || !targetTitle) continue;
 
-    // Get relationship description
-    const descriptions: string[] = [];
-    
-    if ('captions' in connector && Array.isArray(connector.captions)) {
-      const captionTexts = connector.captions
-        .map(c => c?.content ? cleanContent(c.content) : '')
-        .filter(text => text.length > 0);
-      descriptions.push(...captionTexts);
-    }
-    
-    if (descriptions.length === 0 && 'text' in connector) {
-      const text = connector.text;
-      if (typeof text === 'string') {
-        descriptions.push(cleanContent(text));
-      }
-    }
-    
-    if (descriptions.length === 0 && 'title' in connector) {
-      const title = connector.title;
-      if (typeof title === 'string') {
-        descriptions.push(cleanContent(title));
-      }
-    }
-
-    // Add integration
+    // Create integration with cleaned descriptions
     integrations.push({
-      number: relationshipNumber++,
-      source: actualSourceName,
-      'depends-on': actualTargetName,
-      description: descriptions.length > 0 ? descriptions : []
+      number: integrations.length + 1,
+      source: sourceTitle,
+      'depends-on': targetTitle,
+      description: (connector.captions && connector.captions.length > 0)
+        ? connector.captions.map(c => c.content ? stripHtmlTags(c.content) : '')
+        : []
     });
+
+    // Only count dependencies if neither source nor target is a person
+    if (!sourceIsPerson && !targetIsPerson) {
+      // If there's an arrow at the end, the source depends on the target
+      if (hasEndArrow) {
+        outgoingCount.set(sourceTitle, (outgoingCount.get(sourceTitle) || 0) + 1);
+        incomingCount.set(targetTitle, (incomingCount.get(targetTitle) || 0) + 1);
+      }
+      // If there's an arrow at the start, the target depends on the source
+      else if (hasStartArrow) {
+        outgoingCount.set(targetTitle, (outgoingCount.get(targetTitle) || 0) + 1);
+        incomingCount.set(sourceTitle, (incomingCount.get(sourceTitle) || 0) + 1);
+      }
+    }
   }
 
-  return {
-    integrations,
-    incomingCount,
-    outgoingCount,
-    bidirectionalRelationships
-  };
+  return { integrations, incomingCount, outgoingCount, bidirectionalRelationships };
 }
 
 /**

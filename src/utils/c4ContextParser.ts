@@ -13,7 +13,7 @@
  */
 
 import { C4ContextModel, C4Colors, C4System } from '../types/c4Context';
-import { cleanContent, parseHtmlContent, isInLegendArea, ParseResult, processConnectors } from './c4Utils';
+import { cleanContent, parseHtmlContent, isInLegendArea, ParseResult, processConnectors, isPerson } from './c4Utils';
 export { parseFrameToC4Container } from './c4ContainerParser';
 
 /**
@@ -21,17 +21,24 @@ export { parseFrameToC4Container } from './c4ContainerParser';
  */
 interface ProcessedPerson {
   name: string;
-  x: number;
 }
 
 interface ProcessedCoreSystem {
   name: string;
+  description: string;
+  dependencies: {
+    in: number;
+    out: number;
+  };
 }
 
 interface ProcessedSupportingSystem {
   name: string;
   description: string;
-  x: number;
+  dependencies: {
+    in: number;
+    out: number;
+  };
 }
 
 interface ProcessedElements {
@@ -59,12 +66,14 @@ async function getFrameItems(frame: miro.Frame): Promise<miro.BoardItem[]> {
  * @param shape - Miro shape to process
  * @param frame - Parent frame for legend area detection
  * @param elements - Collection to add processed elements to
+ * @param items - All board items for person detection
  */
-function processShape(
+async function processShape(
   shape: miro.Shape, 
   frame: miro.Frame,
-  elements: ProcessedElements
-): void {
+  elements: ProcessedElements,
+  items: miro.BoardItem[]
+): Promise<void> {
   // Skip shapes in the legend area
   if (isInLegendArea(shape, frame)) return;
 
@@ -74,10 +83,14 @@ function processShape(
   // Add to shape map for connector processing later
   elements.shapeMap.set(shape.id, shape);
   
-  // Check both shape type and color
-  if (shape.style.fillColor === C4Colors.PERSON && shape.shape === 'round_rectangle') {
+  // Check if it's a person first
+  if (await isPerson(shape, items)) {
     processPerson(shape, elements);
-  } else if (shape.style.fillColor === C4Colors.CORE_SYSTEM && shape.shape === 'round_rectangle') {
+    return;
+  }
+  
+  // Then check other types
+  if (shape.style.fillColor === C4Colors.CORE_SYSTEM && shape.shape === 'round_rectangle') {
     processCoreSystem(shape, elements);
   } else if (shape.style.fillColor === C4Colors.SUPPORTING_SYSTEM && shape.shape === 'rectangle') {
     processSupportingSystem(shape, elements);
@@ -93,11 +106,8 @@ function processShape(
  */
 function processPerson(shape: miro.Shape, elements: ProcessedElements): void {
   const { title } = parseHtmlContent(shape.content);
-  const name = title || cleanContent(shape.content) || 'Unnamed Person';
-  elements.people.push({
-    name,
-    x: shape.x
-  });
+  const name = title || cleanContent(shape.content);
+  elements.people.push({ name });
 }
 
 /**
@@ -112,7 +122,12 @@ function processCoreSystem(shape: miro.Shape, elements: ProcessedElements): void
   const { title, description } = parseHtmlContent(shape.content);
   const name = title || cleanContent(shape.content).split('\n')[0] || 'Unnamed System';
   elements.coreSystems.push({
-    name
+    name,
+    description: '',
+    dependencies: {
+      in: 0,
+      out: 0
+    }
   });
 }
 
@@ -136,7 +151,10 @@ function processSupportingSystem(shape: miro.Shape, elements: ProcessedElements)
   elements.supportingSystems.push({
     name,
     description: desc,
-    x: shape.x
+    dependencies: {
+      in: 0,
+      out: 0
+    }
   });
 }
 
@@ -148,7 +166,7 @@ function processSupportingSystem(shape: miro.Shape, elements: ProcessedElements)
  * @param frame - Parent frame for context
  * @returns Categorized elements with shape map for connector processing
  */
-function processAllShapes(items: miro.BoardItem[], frame: miro.Frame): ProcessedElements {
+async function processAllShapes(items: miro.BoardItem[], frame: miro.Frame): Promise<ProcessedElements> {
   const elements: ProcessedElements = {
     people: [],
     coreSystems: [],
@@ -159,7 +177,7 @@ function processAllShapes(items: miro.BoardItem[], frame: miro.Frame): Processed
   for (const item of items) {
     if (item.type === 'shape') {
       const shape = item as miro.Shape;
-      processShape(shape, frame, elements);
+      await processShape(shape, frame, elements, items);
     }
   }
 
@@ -191,7 +209,11 @@ function buildSystemsArray(
   }));
 
   const externalSystems = elements.supportingSystems
-    .sort((a, b) => a.x - b.x)
+    .sort((a, b) => {
+      const shapeA = elements.shapeMap.get(a.name);
+      const shapeB = elements.shapeMap.get(b.name);
+      return (shapeA?.x || 0) - (shapeB?.x || 0);
+    })
     .map(s => ({
       name: s.name,
       type: 'External' as const,
@@ -251,46 +273,134 @@ function validateAndReturnResult(
  * @returns Object containing the C4 context model and any warnings
  */
 export async function parseFrameToC4Context(frame: miro.Frame): Promise<ParseResult<C4ContextModel>> {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
   // Get all items in the frame
-  const items = await getFrameItems(frame);
+  const allItems = await miro.board.get();
+  const items = allItems.filter(item => frame.childrenIds.includes(item.id));
   
-  // Initialize the model
+  if (!items || items.length === 0) {
+    return { model: undefined, errors: ['No items found in frame'], warnings: [] };
+  }
+
+  // Separate shapes and connectors with proper type filtering
+  const shapes = items.filter((item): item is miro.Shape => 
+    item.type === 'shape' && 
+    'shape' in item && 
+    'style' in item
+  );
+  const connectors = items.filter((item): item is miro.Connector => 
+    item.type === 'connector' && 
+    'start' in item && 
+    'end' in item
+  );
+
+  // Create a map of shapes for quick lookup
+  const shapeMap = new Map(shapes.map(shape => [shape.id, shape]));
+
+  // Process connectors first to get dependency counts
+  const { integrations, incomingCount, outgoingCount, bidirectionalRelationships } = await processConnectors(connectors, shapeMap);
+
+  // If there are any bidirectional relationships, add them as errors and return without model
+  if (bidirectionalRelationships.length > 0) {
+    errors.push(`Detected ${bidirectionalRelationships.length} bidirectional dependencies (connectors with arrows on both ends) between:`);
+    bidirectionalRelationships.forEach(rel => {
+      errors.push(`${rel.source} and ${rel.target}`);
+    });
+    return { model: undefined, errors, warnings };
+  }
+
+  // Process all shapes
+  const people: ProcessedPerson[] = [];
+  const coreSystems: ProcessedCoreSystem[] = [];
+  const supportingSystems: ProcessedSupportingSystem[] = [];
+
+  // Process shapes in parallel for better performance
+  await Promise.all(shapes.map(async shape => {
+    // Check for person first
+    const isPersonShape = await isPerson(shape, items);
+    if (isPersonShape) {
+      const { title } = parseHtmlContent(shape.content);
+      const name = title || cleanContent(shape.content);
+      people.push({ name });
+      return;
+    }
+
+    // Check for core system
+    if (isCoreSystem(shape)) {
+      const { title, description } = parseHtmlContent(shape.content);
+      const name = title || cleanContent(shape.content);
+      coreSystems.push({
+        name,
+        description: description || '',
+        dependencies: {
+          in: incomingCount.get(name) || 0,
+          out: outgoingCount.get(name) || 0
+        }
+      });
+      return;
+    }
+
+    // Check for supporting system
+    if (isSupportingSystem(shape)) {
+      const { title, description } = parseHtmlContent(shape.content);
+      const name = title || cleanContent(shape.content);
+      supportingSystems.push({
+        name,
+        description: description || '',
+        dependencies: {
+          in: incomingCount.get(name) || 0,
+          out: outgoingCount.get(name) || 0
+        }
+      });
+    }
+  }));
+
+  // Sort people by x position (left to right)
+  people.sort((a, b) => {
+    const shapeA = shapes.find(s => cleanContent(s.content) === a.name);
+    const shapeB = shapes.find(s => cleanContent(s.content) === b.name);
+    return (shapeA?.x || 0) - (shapeB?.x || 0);
+  });
+
+  // Sort supporting systems by x position (left to right)
+  const sortedSupportingSystems = [...supportingSystems].sort((a, b) => {
+    const shapeA = shapes.find(s => cleanContent(s.content) === a.name);
+    const shapeB = shapes.find(s => cleanContent(s.content) === b.name);
+    return (shapeA?.x || 0) - (shapeB?.x || 0);
+  });
+
+  // Create the model
   const model: C4ContextModel = {
     level: 'Context',
-    title: frame.title || 'C4 Context Diagram',
-    people: [],
-    systems: [],
-    integrations: []
+    title: frame.title || 'Context Diagram',
+    people,
+    systems: [
+      ...coreSystems.map(s => ({
+        name: s.name,
+        type: 'Core' as const,
+        ...(s.description ? { description: s.description } : {}),
+        dependencies: s.dependencies
+      })),
+      ...sortedSupportingSystems.map(s => ({
+        name: s.name,
+        type: 'External' as const,
+        ...(s.description ? { description: s.description } : {}),
+        dependencies: s.dependencies
+      }))
+    ],
+    integrations
   };
 
-  // Track warnings and errors
-  const warnings: string[] = [];
-  const errors: string[] = [];
-  
-  // Process all shapes into categorized elements
-  const elements = processAllShapes(items, frame);
+  return { model, errors, warnings };
+}
 
-  // Sort people by x coordinate (left to right) and add to model
-  model.people = elements.people
-    .sort((a, b) => a.x - b.x)
-    .map(p => ({ name: p.name }));
-  
-  // Get all connectors (excluding those in legend area)
-  const connectors = items.filter(item => 
-    item.type === 'connector' && 
-    !isInLegendArea(item, frame)
-  ) as miro.Connector[];
+function isCoreSystem(shape: miro.Shape): boolean {
+  return shape.shape === 'round_rectangle' && 
+         shape.style?.fillColor === C4Colors.CORE_SYSTEM;
+}
 
-  // Process connectors using shared function
-  const { integrations, incomingCount, outgoingCount, bidirectionalRelationships } = 
-    processConnectors(connectors, elements.shapeMap);
-
-  // Build the systems array with dependency counts
-  model.systems = buildSystemsArray(elements, incomingCount, outgoingCount);
-
-  // Add integrations to model
-  model.integrations = integrations;
-
-  // Validate result and handle any errors
-  return validateAndReturnResult(model, warnings, errors, bidirectionalRelationships);
+function isSupportingSystem(shape: miro.Shape): boolean {
+  return shape.shape === 'rectangle';
 } 

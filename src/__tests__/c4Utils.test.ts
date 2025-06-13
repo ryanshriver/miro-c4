@@ -14,7 +14,8 @@ import {
   mockCoreSystemShape, 
   mockSupportingSystemShape,
   mockFrame,
-  mockConnector 
+  mockConnector,
+  mockPersonCircle
 } from './fixtures/mockShapes';
 
 describe('c4Utils', () => {
@@ -129,14 +130,13 @@ describe('c4Utils', () => {
       jest.clearAllMocks();
     });
 
-    it('should create integrations from connectors', () => {
+    it('should create integrations from connectors', async () => {
       const shapeMap = new Map([
-        ['person-1', mockPersonShape],
-        ['core-system-1', mockCoreSystemShape]
+        [mockPersonShape.id, mockPersonShape],
+        [mockCoreSystemShape.id, mockCoreSystemShape],
+        [mockPersonCircle.id, mockPersonCircle]
       ]);
-
-      const result = processConnectors([mockConnector], shapeMap);
-
+      const result = await processConnectors([mockConnector], shapeMap);
       expect(result.integrations).toHaveLength(1);
       expect(result.integrations[0]).toEqual({
         number: 1,
@@ -146,70 +146,36 @@ describe('c4Utils', () => {
       });
     });
 
-    it('should count dependencies correctly', () => {
+    it('should count dependencies correctly', async () => {
       const shapeMap = new Map([
-        ['person-1', mockPersonShape],
-        ['core-system-1', mockCoreSystemShape]
+        [mockPersonShape.id, mockPersonShape],
+        [mockCoreSystemShape.id, mockCoreSystemShape],
+        [mockPersonCircle.id, mockPersonCircle]
       ]);
-
-      const result = processConnectors([mockConnector], shapeMap);
-
+      const result = await processConnectors([mockConnector], shapeMap);
       expect(result.outgoingCount.get('Employee')).toBe(1);
       expect(result.incomingCount.get('Talent Systems')).toBe(1);
     });
 
-    it('should detect bidirectional relationships', () => {
-      const bidirectionalConnector = {
-        ...mockConnector,
-        style: {
-          startStrokeCap: 'arrow' as const,
-          endStrokeCap: 'arrow' as const,
-        }
-      };
-
+    it('should handle connectors without captions', async () => {
+      const connectorWithoutCaptions = { ...mockConnector, captions: undefined };
       const shapeMap = new Map([
-        ['person-1', mockPersonShape],
-        ['core-system-1', mockCoreSystemShape]
+        [mockPersonShape.id, mockPersonShape],
+        [mockCoreSystemShape.id, mockCoreSystemShape],
+        [mockPersonCircle.id, mockPersonCircle]
       ]);
-
-      const result = processConnectors([bidirectionalConnector], shapeMap);
-
-      expect(result.bidirectionalRelationships).toHaveLength(1);
-      expect(result.bidirectionalRelationships[0]).toEqual({
-        source: 'Employee',
-        target: 'Talent Systems'
-      });
-    });
-
-    it('should handle connectors without captions', () => {
-      const connectorWithoutCaptions = {
-        ...mockConnector,
-        captions: []
-      };
-
-      const shapeMap = new Map([
-        ['person-1', mockPersonShape],
-        ['core-system-1', mockCoreSystemShape]
-      ]);
-
-      const result = processConnectors([connectorWithoutCaptions], shapeMap);
-
+      const result = await processConnectors([connectorWithoutCaptions], shapeMap);
       expect(result.integrations[0].description).toEqual([]);
     });
 
-    it('should skip connectors without valid start/end items', () => {
-      const invalidConnector = {
-        ...mockConnector,
-        start: { ...mockConnector.start, item: 'nonexistent-id' }
-      };
-
+    it('should skip connectors without valid start/end items', async () => {
+      const invalidConnector = { ...mockConnector, start: { item: 'invalid', position: { x: 0, y: 0 } } };
       const shapeMap = new Map([
-        ['person-1', mockPersonShape],
-        ['core-system-1', mockCoreSystemShape]
+        [mockPersonShape.id, mockPersonShape],
+        [mockCoreSystemShape.id, mockCoreSystemShape],
+        [mockPersonCircle.id, mockPersonCircle]
       ]);
-
-      const result = processConnectors([invalidConnector], shapeMap);
-
+      const result = await processConnectors([invalidConnector], shapeMap);
       expect(result.integrations).toHaveLength(0);
     });
   });

@@ -41,7 +41,7 @@ export type C4System = {
 } | {
   name: string;
   type: 'External';
-  description: string;
+  description?: string;
   dependencies: {
     in: number;
     out: number;

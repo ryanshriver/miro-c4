@@ -27,7 +27,7 @@
  */
 
 import { C4ContainerModel, C4ContainerColors } from '../types/c4Container';
-import { cleanContent, parseHtmlContent, isInLegendArea, ParseResult, processConnectors } from './c4Utils';
+import { cleanContent, parseHtmlContent, isInLegendArea, ParseResult, processConnectors, isPerson } from './c4Utils';
 
 /**
  * Intermediate data structures for container processing
@@ -156,60 +156,6 @@ async function collectShapesForProcessing(items: miro.BoardItem[], frame: miro.F
 }
 
 /**
- * Checks if a shape represents a person by looking for nearby circles.
- * Uses proximity-based detection within 100x/150y pixel threshold.
- * 
- * @param shape - Shape to check for person characteristics
- * @param items - All board items to search for nearby circles
- * @returns True if shape has nearby circles indicating it's a person
- */
-function isPersonShape(shape: miro.Shape, items: miro.BoardItem[]): boolean {
-  if (shape.shape !== 'round_rectangle') {
-    return false;
-  }
-  
-  // Get all circles, including those in groups
-  const circles = items.filter(item => {
-    if (item.type === 'shape' && (item as miro.Shape).shape === 'circle') {
-      return true;
-    }
-    return false;
-  });
-  
-  console.log('Checking for person:', {
-    name: cleanContent(shape.content),
-    shape: {
-      x: shape.x,
-      y: shape.y
-    },
-    circles: circles.map(circle => ({
-      x: circle.x,
-      y: circle.y,
-      distance: {
-        x: Math.abs(circle.x - shape.x),
-        y: Math.abs(circle.y - shape.y)
-      }
-    }))
-  });
-  
-  // Check if any circle is near this round_rectangle
-  return circles.some(circle => {
-    const xDist = Math.abs(circle.x - shape.x);
-    const yDist = Math.abs(circle.y - shape.y);
-    // Increased thresholds to better match Miro's person icon dimensions
-    const isNearby = xDist < 100 && yDist < 150;
-    
-    console.log('Circle distance check:', {
-      xDist,
-      yDist,
-      isNearby
-    });
-    
-    return isNearby;
-  });
-}
-
-/**
  * Determines container type based on shape and name content.
  * 
  * @param shape - Shape to classify
@@ -240,13 +186,13 @@ function determineContainerType(shape: miro.Shape, name: string): string {
  * @param outgoingCount - Map of outgoing dependency counts
  * @param state - Processing state containing model and tracking data
  */
-function processShapeIntoModel(
+async function processShapeIntoModel(
   shape: miro.Shape,
   items: miro.BoardItem[],
   incomingCount: Map<string, number>,
   outgoingCount: Map<string, number>,
   state: ContainerProcessingState
-): void {
+): Promise<void> {
   // Skip empty shapes
   if (!shape.content) {
     console.log('Skipping empty content:', shape.id);
@@ -293,7 +239,7 @@ function processShapeIntoModel(
   }
   
   // Check for person by looking for nearby circles
-  if (isPersonShape(shape, items)) {
+  if (await isPerson(shape, items)) {
     console.log('Found person:', {
       name,
       hasNearbyCircle: true
@@ -431,14 +377,14 @@ function processShapeIntoModel(
  * @param outgoingCount - Map of outgoing dependency counts
  * @param state - Processing state containing collections and model
  */
-function processAllShapesIntoModel(
+async function processAllShapesIntoModel(
   items: miro.BoardItem[],
   incomingCount: Map<string, number>,
   outgoingCount: Map<string, number>,
   state: ContainerProcessingState
-): void {
+): Promise<void> {
   for (const [id, shape] of state.shapeMap) {
-    processShapeIntoModel(shape, items, incomingCount, outgoingCount, state);
+    await processShapeIntoModel(shape, items, incomingCount, outgoingCount, state);
   }
 }
 
@@ -556,7 +502,7 @@ export async function parseFrameToC4Container(frame: miro.Frame): Promise<ParseR
     processConnectors(connectors, state.shapeMap);
 
   // Second pass: process shapes into model elements
-  processAllShapesIntoModel(items, incomingCount, outgoingCount, state);
+  await processAllShapesIntoModel(items, incomingCount, outgoingCount, state);
 
   // Add integrations to model
   state.model.integrations = integrations;

@@ -4,6 +4,22 @@
 
 import { C4Colors } from '../../types/c4Context';
 
+export const mockPersonCircle: miro.Shape = {
+  id: 'circle-1',
+  type: 'shape',
+  shape: 'circle',
+  x: 100, // Same X as person shape
+  y: 80,  // Very close Y to person shape (within 150px threshold)
+  content: '',
+  style: {
+    fillColor: '#ffffff',
+    fontFamily: 'open_sans',
+    fontSize: 14,
+    textAlign: 'center',
+    textAlignVertical: 'middle',
+  },
+};
+
 export const mockPersonShape: miro.Shape = {
   id: 'person-1',
   type: 'shape',
@@ -52,19 +68,6 @@ export const mockSupportingSystemShape: miro.Shape = {
   },
 };
 
-export const mockFrame: miro.Frame = {
-  id: 'frame-1',
-  type: 'frame',
-  title: 'Context Diagram (Level 1)',
-  x: 0,
-  y: 0,
-  width: 800,
-  height: 600,
-  childrenIds: ['person-1', 'core-system-1', 'supporting-system-1', 'connector-1'],
-  children: [],
-  content: '',
-};
-
 export const mockConnector: miro.Connector = {
   id: 'connector-1',
   type: 'connector',
@@ -73,18 +76,30 @@ export const mockConnector: miro.Connector = {
   content: '',
   start: {
     item: 'person-1',
-    position: { x: 0.5, y: 0.5 },
+    position: { x: 0, y: 0 }
   },
   end: {
     item: 'core-system-1',
-    position: { x: 0.5, y: 0.5 },
+    position: { x: 0, y: 0 }
   },
   style: {
-    endStrokeCap: 'arrow',
+    startStrokeCap: 'arrow',
+    endStrokeCap: 'arrow'
   },
   captions: [
-    {
-      content: 'Maintains personal data',
-    }
-  ],
+    { content: 'Maintains personal data' }
+  ]
+};
+
+export const mockFrame: miro.Frame = {
+  id: 'frame-1',
+  type: 'frame',
+  title: 'Context Diagram',
+  x: 0,
+  y: 0,
+  width: 800,
+  height: 600,
+  childrenIds: ['person-1', 'core-system-1', 'connector-1', 'circle-1'],
+  children: [],
+  content: ''
 }; 
